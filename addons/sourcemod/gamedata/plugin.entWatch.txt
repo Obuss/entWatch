@@ -21,4 +21,25 @@
 			}
 		}
 	}
+	"csgo"
+	{
+		"Offsets"
+		{
+			"GetSlot"
+			{
+				"windows"	"356"
+				"linux"		"362"
+			}
+			"BumpWeapon"
+			{
+				"windows"	"444"
+				"linux"		"445"
+			}
+			"OnPickedUp"
+			{
+				"windows"	"336"
+				"linux"		"342"
+			}
+		}
+	}
 }

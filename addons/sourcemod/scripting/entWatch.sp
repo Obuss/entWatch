@@ -11,11 +11,41 @@
 #include <cstrike>
 #include <clientprefs>
 #include <adminmenu>
-#tryinclude <morecolors>
 #tryinclude <entWatch>
+//#tryinclude <morecolors>
+#tryinclude <csgomorecolors>
 
-#define PLUGIN_VERSION "3.7.1"
+
+#define PLUGIN_VERSION "3.8.26"
 #undef REQUIRE_PLUGIN
+
+#pragma newdecls required
+
+//----------------------------------------------------------------------------------------------------
+// Purpose: Plugin settings
+//----------------------------------------------------------------------------------------------------
+ConVar g_hCvar_DisplayEnabled;
+ConVar g_hCvar_DisplayCooldowns;
+ConVar g_hCvar_ModeTeamOnly;
+ConVar g_hCvar_ConfigColor;
+
+Handle g_hAdminMenu;
+Handle g_hOnBanForward;
+Handle g_hOnUnbanForward;
+
+Menu g_hEntMenu[MAXPLAYERS + 1]	= {null, ...};
+Panel g_hInfoPlayer[MAXPLAYERS + 1] = {null, ...};
+
+EngineVersion g_eGame;
+
+bool g_bRoundTransition  = false;
+bool g_bConfigLoaded     = false;
+bool g_bLateLoad         = false;
+
+Handle g_hGetSlot;
+Handle g_hBumpWeapon;
+Handle g_hOnPickedUp;
+
 
 //----------------------------------------------------------------------------------------------------
 // Purpose: Entity data
@@ -37,84 +67,71 @@ enum entities
 	ent_weaponid,
 	ent_buttonid,
 	ent_ownerid,
-	ent_mode, // 0 = No button, 1 = Spam protection only, 2 = Cooldowns, 3 = Limited uses, 4 = Limited uses with cooldowns, 5 = Cooldowns after multiple uses.
+	ent_mode, // 0 = No iButton, 1 = Spam protection only, 2 = Cooldowns, 3 = Limited uses, 4 = Limited uses with cooldowns, 5 = Cooldowns after multiple uses.
 	ent_uses,
 	ent_maxuses,
 	ent_cooldown,
 	ent_cooldowntime,
 };
 
-new entArray[512][entities];
-new entArraySize = 512;
-new triggerArray[512];
-new triggerSize = 512;
+int entArray[512][entities];
+int entArraySize = 512;
+int triggerArray[512];
+int triggerSize = 512;
+
+int g_iStoreIndex = 0;
+char g_sEntIndex [32][3];
+char g_sEntMsg[32][129];
 
 //----------------------------------------------------------------------------------------------------
 // Purpose: Color settings
 //----------------------------------------------------------------------------------------------------
-new String:color_tag[16]         = "E01B5D";
-new String:color_name[16]        = "EDEDED";
-new String:color_steamid[16]     = "B2B2B2";
-new String:color_use[16]         = "67ADDF";
-new String:color_pickup[16]      = "C9EF66";
-new String:color_drop[16]        = "E562BA";
-new String:color_disconnect[16]  = "F1B567";
-new String:color_death[16]       = "F1B567";
-new String:color_warning[16]     = "F16767";
+char color_tag[16]         = "E01B5D";
+char color_name[16]        = "EDEDED";
+char color_steamid[16]     = "B2B2B2";
+char color_use[16]         = "67ADDF";
+char color_pickup[16]      = "C9EF66";
+char color_drop[16]        = "E562BA";
+char color_disconnect[16]  = "F1B567";
+char color_death[16]       = "F1B567";
+char color_warning[16]     = "F16767";
 
 //----------------------------------------------------------------------------------------------------
 // Purpose: Client settings
 //----------------------------------------------------------------------------------------------------
-new Handle:g_hCookie_Display     = INVALID_HANDLE;
-new Handle:g_hCookie_Restricted  = INVALID_HANDLE;
-new Handle:g_hCookie_RestrictedLength = INVALID_HANDLE;
-new Handle:g_hCookie_RestrictedIssued = INVALID_HANDLE;
-new Handle:g_hCookie_RestrictedBy	  = INVALID_HANDLE;
+Handle g_hCookie_Display     = null;
+Handle g_hCookie_Restricted  = null;
+Handle g_hCookie_RestrictedLength = null;
+Handle g_hCookie_RestrictedIssued = null;
+Handle g_hCookie_RestrictedBy	  = null;
 
-new bool:g_bDisplay[MAXPLAYERS + 1]     = false;
-new bool:g_bRestricted[MAXPLAYERS + 1]  = false;
-new String:g_sRestrictedBy[MAXPLAYERS + 1][64];
-new g_iRestrictedLength[MAXPLAYERS + 1];
-new g_iRestrictedIssued[MAXPLAYERS + 1];
-new g_iAdminMenuTarget[MAXPLAYERS + 1];
+bool g_bDisplay[MAXPLAYERS + 1]     = false;
+bool g_bRestricted[MAXPLAYERS + 1]  = false;
+char g_sRestrictedBy[MAXPLAYERS + 1][64];
+int  g_iRestrictedLength[MAXPLAYERS + 1];
+int  g_iRestrictedIssued[MAXPLAYERS + 1];
+int  g_iAdminMenuTarget[MAXPLAYERS + 1];
 
-//----------------------------------------------------------------------------------------------------
-// Purpose: Plugin settings
-//----------------------------------------------------------------------------------------------------
-new Handle:g_hCvar_DisplayEnabled    = INVALID_HANDLE;
-new Handle:g_hCvar_DisplayCooldowns  = INVALID_HANDLE;
-new Handle:g_hCvar_ModeTeamOnly      = INVALID_HANDLE;
-new Handle:g_hCvar_ConfigColor       = INVALID_HANDLE;
-new Handle:g_hAdminMenu				 = INVALID_HANDLE;
-new Handle:g_hOnBanForward			 = INVALID_HANDLE;
-new Handle:g_hOnUnbanForward		 = INVALID_HANDLE;
-
-new bool:g_bRoundTransition  = false;
-new bool:g_bConfigLoaded     = false;
-new bool:g_bLateLoad         = false;
-
-new Handle:g_hGetSlot;
-new Handle:g_hBumpWeapon;
-new Handle:g_hOnPickedUp;
 
 //----------------------------------------------------------------------------------------------------
 // Purpose: Plugin information
 //----------------------------------------------------------------------------------------------------
-public Plugin:myinfo =
+public Plugin myinfo =
 {
 	name         = "entWatch",
 	author       = "Prometheum & zaCade. Edits: George & Obus & BotoX",
 	description  = "Notify players about entity interactions.",
 	version      = PLUGIN_VERSION,
-	url          = "https://github.com/Obuss/entWatch" // Original here: "https://github.com/zaCade/entWatch"
+	url          = "https://github.com/Locomotivers/entWatch-CSGO/" // Current CSS version here: "https://github.com/Obuss/entWatch" Original here: "https://github.com/zaCade/entWatch"
 };
 
-public APLRes:AskPluginLoad2(Handle:hThis, bool:bLate, String:sError[], err_max)
+public APLRes AskPluginLoad2(Handle hThis, bool bLate, char[] sError, int iErr_max)
 {
 	CreateNative("entWatch_IsClientBanned", Native_IsClientBanned);
 	CreateNative("entWatch_BanClient", Native_BanClient);
 	CreateNative("entWatch_UnbanClient", Native_UnbanClient);
 	CreateNative("entWatch_IsSpecialItem", Native_IsSpecialItem);
+	CreateNative("entWatch_HasSpecialItem", Native_HasSpecialItem);
 
 	RegPluginLibrary("entWatch");
 
@@ -126,8 +143,20 @@ public APLRes:AskPluginLoad2(Handle:hThis, bool:bLate, String:sError[], err_max)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Plugin initialization
 //----------------------------------------------------------------------------------------------------
-public OnPluginStart()
+public void OnPluginStart()
 {
+	g_eGame = GetEngineVersion();
+
+	switch (g_eGame)
+	{
+		case Engine_CSS:
+			LogMessage("[entWatch] Game engine detected as Counter Strike: Source.")
+		case Engine_CSGO:
+			LogMessage("[entWatch] Game engine detected as Counter Strike: Global Offensive.")
+		default:
+			SetFailState("[entWatch] Error: Invalid game engine detected! Plugin will be stopped!")
+	}
+
 	CreateConVar("entwatch_version", PLUGIN_VERSION, "Current version of entWatch", FCVAR_PLUGIN|FCVAR_SPONLY|FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 
 	g_hCvar_DisplayEnabled    = CreateConVar("entwatch_display_enable", "1", "Enable/Disable the display.", FCVAR_PLUGIN, true, 0.0, true, 1.0);
@@ -141,7 +170,7 @@ public OnPluginStart()
 	g_hCookie_RestrictedIssued = RegClientCookie("entwatch_restrictedissued", "", CookieAccess_Private);
 	g_hCookie_RestrictedBy     = RegClientCookie("entwatch_restrictedby", "", CookieAccess_Private);
 
-	new Handle:hTopMenu;
+	Handle hTopMenu;
 
 	if (LibraryExists("adminmenu") && ((hTopMenu = GetAdminTopMenu()) != INVALID_HANDLE))
 	{
@@ -166,6 +195,9 @@ public OnPluginStart()
 	CreateTimer(1.0, Timer_DisplayHUD, _, TIMER_REPEAT);
 	CreateTimer(1.0, Timer_Cooldowns, _, TIMER_REPEAT);
 
+	if (g_eGame == Engine_CSGO)
+		CreateTimer(1.0, Timer_NotifHUD, _, TIMER_REPEAT);
+
 	LoadTranslations("entWatch.phrases");
 	LoadTranslations("common.phrases");
 
@@ -176,7 +208,7 @@ public OnPluginStart()
 
 	if (g_bLateLoad)
 	{
-		for (new i = 1; i <= MaxClients; i++)
+		for (int i = 1; i <= MaxClients; i++)
 		{
 			if (!IsClientInGame(i) || IsFakeClient(i))
 				continue;
@@ -186,7 +218,7 @@ public OnPluginStart()
 		}
 	}
 
-	new Handle:hGameConf = LoadGameConfigFile("plugin.entWatch");
+	Handle hGameConf = LoadGameConfigFile("plugin.entWatch");
 	if(hGameConf == INVALID_HANDLE)
 	{
 		SetFailState("Couldn't load plugin.entWatch game config!")
@@ -266,88 +298,88 @@ public OnPluginStart()
 //----------------------------------------------------------------------------------------------------
 // Purpose: Main ban function
 //----------------------------------------------------------------------------------------------------
-EBanClient(client, const String:sLength[], admin)
+void EBanClient(int iClient, const char[] sLength, int iAdmin)
 {
-	new iBanLen = StringToInt(sLength);
-	new iBanDuration = (iBanLen - GetTime()) / 60;
+	int iBanLen = StringToInt(sLength);
+	int iBanDuration = (iBanLen - GetTime()) / 60;
 
-	if (admin == 0)
+	if (iAdmin == 0)
 	{
-		Format(g_sRestrictedBy[client], sizeof(g_sRestrictedBy[]), "Console");
-		SetClientCookie(client, g_hCookie_RestrictedBy, "Console");
+		Format(g_sRestrictedBy[iClient], sizeof(g_sRestrictedBy[]), "Console");
+		SetClientCookie(iClient, g_hCookie_RestrictedBy, "Console");
 	}
 	else
 	{
-		new String:sAdminSID[64];
-		GetClientAuthId(admin, AuthId_Steam2, sAdminSID, sizeof(sAdminSID));
-		Format(g_sRestrictedBy[client], sizeof(g_sRestrictedBy[]), "%s (%N)", sAdminSID, admin);
+		char sAdminSID[64];
+		GetClientAuthId(iAdmin, AuthId_Steam2, sAdminSID, sizeof(sAdminSID));
+		Format(g_sRestrictedBy[iClient], sizeof(g_sRestrictedBy[]), "%s (%N)", sAdminSID, iAdmin);
 
-		SetClientCookie(client, g_hCookie_RestrictedBy, sAdminSID);
+		SetClientCookie(iClient, g_hCookie_RestrictedBy, sAdminSID);
 	}
 
 	if (iBanLen == 0)
 	{
 		iBanDuration = 0;
-		g_bRestricted[client] = true;
+		g_bRestricted[iClient] = true;
 
-		LogAction(admin, client, "\"%L\" restricted \"%L\"", admin, client);
+		LogAction(iAdmin, iClient, "\"%L\" restricted \"%L\"", iAdmin, iClient);
 	}
 	else if (iBanLen == 1)
 	{
 		iBanDuration = -1;
-		g_iRestrictedLength[client] = 1;
-		SetClientCookie(client, g_hCookie_RestrictedLength, "1");
+		g_iRestrictedLength[iClient] = 1;
+		SetClientCookie(iClient, g_hCookie_RestrictedLength, "1");
 
-		LogAction(admin, client, "\"%L\" restricted \"%L\" permanently", admin, client);
+		LogAction(iAdmin, iClient, "\"%L\" restricted \"%L\" permanently", iAdmin, iClient);
 	}
 	else
 	{
-		g_iRestrictedLength[client] = iBanLen;
-		SetClientCookie(client, g_hCookie_RestrictedLength, sLength);
+		g_iRestrictedLength[iClient] = iBanLen;
+		SetClientCookie(iClient, g_hCookie_RestrictedLength, sLength);
 
-		LogAction(admin, client, "\"%L\" restricted \"%L\" for %d minutes", admin, client, iBanDuration);
+		LogAction(iAdmin, iClient, "\"%L\" restricted \"%L\" for %d iMinutes", iAdmin, iClient, iBanDuration);
 	}
 
-	new String:sIssueTime[64];
+	char sIssueTime[64];
 	Format(sIssueTime, sizeof(sIssueTime), "%d", GetTime());
 
-	g_iRestrictedIssued[client] = GetTime();
-	SetClientCookie(client, g_hCookie_RestrictedIssued, sIssueTime);
+	g_iRestrictedIssued[iClient] = GetTime();
+	SetClientCookie(iClient, g_hCookie_RestrictedIssued, sIssueTime);
 
-	CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%srestricted \x07%s%N", color_tag, color_name, admin, color_warning, color_name, client);
+	CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%srestricted \x07%s%N", color_tag, color_name, iAdmin, color_warning, color_name, iClient);
 
 	Call_StartForward(g_hOnBanForward);
-	Call_PushCell(admin);
+	Call_PushCell(iAdmin);
 	Call_PushCell(iBanDuration);
-	Call_PushCell(client);
+	Call_PushCell(iClient);
 	Call_Finish();
 }
 
 //----------------------------------------------------------------------------------------------------
 // Purpose: Main unban function
 //----------------------------------------------------------------------------------------------------
-EUnbanClient(client, admin)
+void EUnbanClient(int iClient, int iAdmin)
 {
-	g_bRestricted[client] = false;
-	g_iRestrictedLength[client] = 0;
-	g_iRestrictedIssued[client] = 0;
-	g_sRestrictedBy[client][0] = '\0'
-	SetClientCookie(client, g_hCookie_RestrictedLength, "0");
-	SetClientCookie(client, g_hCookie_RestrictedBy, "");
-	SetClientCookie(client, g_hCookie_RestrictedIssued, "");
+	g_bRestricted[iClient] = false;
+	g_iRestrictedLength[iClient] = 0;
+	g_iRestrictedIssued[iClient] = 0;
+	g_sRestrictedBy[iClient][0] = '\0'
+	SetClientCookie(iClient, g_hCookie_RestrictedLength, "0");
+	SetClientCookie(iClient, g_hCookie_RestrictedBy, "");
+	SetClientCookie(iClient, g_hCookie_RestrictedIssued, "");
 
-	CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%sunrestricted \x07%s%N", color_tag, color_name, admin, color_warning, color_name, client);
-	LogAction(admin, client, "\"%L\" unrestricted \"%L\"", admin, client);
+	CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%sunrestricted \x07%s%N", color_tag, color_name, iAdmin, color_warning, color_name, iClient);
+	LogAction(iAdmin, iClient, "\"%L\" unrestricted \"%L\"", iAdmin, iClient);
 
 	Call_StartForward(g_hOnUnbanForward);
-	Call_PushCell(admin);
-	Call_PushCell(client);
+	Call_PushCell(iAdmin);
+	Call_PushCell(iClient);
 	Call_Finish();
 }
 //----------------------------------------------------------------------------------------------------
 // Purpose: Safeguard against adminmenu unloading
 //----------------------------------------------------------------------------------------------------
-public OnLibraryRemoved(const String:sName[])
+public void OnLibraryRemoved(const char[] sName)
 {
 	if (StrEqual(sName, "adminmenu"))
 		g_hAdminMenu = INVALID_HANDLE;
@@ -356,7 +388,7 @@ public OnLibraryRemoved(const String:sName[])
 //----------------------------------------------------------------------------------------------------
 // Purpose: Add our entries to the main admin menu
 //----------------------------------------------------------------------------------------------------
-public OnAdminMenuReady(Handle:hAdminMenu)
+public void OnAdminMenuReady(Handle hAdminMenu)
 {
 	if (hAdminMenu == g_hAdminMenu)
 	{
@@ -365,7 +397,7 @@ public OnAdminMenuReady(Handle:hAdminMenu)
 
 	g_hAdminMenu = hAdminMenu;
 
-	new TopMenuObject:hMenuObj = AddToTopMenu(g_hAdminMenu, "entWatch_commands", TopMenuObject_Category, AdminMenu_Commands_Handler, INVALID_TOPMENUOBJECT);
+	TopMenuObject hMenuObj = AddToTopMenu(g_hAdminMenu, "entWatch_commands", TopMenuObject_Category, AdminMenu_Commands_Handler, INVALID_TOPMENUOBJECT);
 
 	if (hMenuObj == INVALID_TOPMENUOBJECT)
 	{
@@ -381,7 +413,7 @@ public OnAdminMenuReady(Handle:hAdminMenu)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Menu Stuff
 //----------------------------------------------------------------------------------------------------
-public AdminMenu_Commands_Handler(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjID, iParam1, String:sBuffer[], iMaxlen)
+public void AdminMenu_Commands_Handler(Handle hMenu, TopMenuAction hAction, TopMenuObject hObjID, int iParam1, char[] sBuffer, int iMaxlen)
 {
 	if (hAction == TopMenuAction_DisplayOption)
 	{
@@ -393,7 +425,7 @@ public AdminMenu_Commands_Handler(Handle:hMenu, TopMenuAction:hAction, TopMenuOb
 	}
 }
 
-public Handler_EBanList(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjID, iParam1, String:sBuffer[], iMaxlen)
+public void Handler_EBanList(Handle hMenu, TopMenuAction hAction, TopMenuObject hObjID, int iParam1, char[] sBuffer, int iMaxlen)
 {
 	if (hAction == TopMenuAction_DisplayOption)
 	{
@@ -405,7 +437,7 @@ public Handler_EBanList(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjI
 	}
 }
 
-public Handler_EBan(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjID, iParam1, String:sBuffer[], iMaxlen)
+public void Handler_EBan(Handle hMenu, TopMenuAction hAction, TopMenuObject hObjID, int iParam1, char[] sBuffer, int iMaxlen)
 {
 	if (hAction == TopMenuAction_DisplayOption)
 	{
@@ -417,7 +449,7 @@ public Handler_EBan(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjID, i
 	}
 }
 
-public Handler_Transfer(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjID, iParam1, String:sBuffer[], iMaxlen)
+public void Handler_Transfer(Handle hMenu, TopMenuAction hAction, TopMenuObject hObjID, int iParam1, char[] sBuffer, int iMaxlen)
 {
 	if (hAction == TopMenuAction_DisplayOption)
 	{
@@ -429,7 +461,7 @@ public Handler_Transfer(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjI
 	}
 }
 
-public Handler_EUnban(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjID, iParam1, String:sBuffer[], iMaxlen)
+public void Handler_EUnban(Handle hMenu, TopMenuAction hAction, TopMenuObject hObjID, int iParam1, char[] sBuffer, int iMaxlen)
 {
 	if (hAction == TopMenuAction_DisplayOption)
 	{
@@ -441,62 +473,62 @@ public Handler_EUnban(Handle:hMenu, TopMenuAction:hAction, TopMenuObject:hObjID,
 	}
 }
 
-Menu_List(client)
+void Menu_List(int iClient)
 {
-	new iBannedClients;
+	int iBannedClients;
 
-	new Handle:hListMenu = CreateMenu(MenuHandler_Menu_List);
-	SetMenuTitle(hListMenu, "[entWatch] Banned Clients:");
-	SetMenuExitBackButton(hListMenu, true);
+	Menu hListMenu = CreateMenu(MenuHandler_Menu_List);
+	hListMenu.SetTitle("[entWatch] Banned Clients:");
+	hListMenu.ExitBackButton = true;
 
-	for (new i = 1; i < MaxClients + 1; i++)
+	for (int i = 1; i < MaxClients + 1; i++)
 	{
 		if (IsClientInGame(i) && AreClientCookiesCached(i))
 		{
-			decl String:sBanLen[32];
+			char sBanLen[32];
 			GetClientCookie(i, g_hCookie_RestrictedLength, sBanLen, sizeof(sBanLen));
-			new iBanLen = StringToInt(sBanLen);
+			int iBanLen = StringToInt(sBanLen);
 
 			if ((iBanLen != 0 && iBanLen >= GetTime()) || iBanLen == 1 || g_bRestricted[i])
 			{
-				new iUserID = GetClientUserId(i);
-				decl String:sUserID[32];
-				decl String:sBuff[64];
+				int iUserID = GetClientUserId(i);
+				char sUserID[32];
+				char sBuff[64];
 				Format(sBuff, sizeof(sBuff), "%N (#%i)", i, iUserID);
 				Format(sUserID, sizeof(sUserID), "%d", iUserID);
 
-				AddMenuItem(hListMenu, sUserID, sBuff);
+				hListMenu.AddItem(sUserID, sBuff);
 				iBannedClients++;
 			}
 		}
 	}
 
 	if (!iBannedClients)
-		AddMenuItem(hListMenu, "", "No Banned Clients.", ITEMDRAW_DISABLED);
+		hListMenu.AddItem("", "No Banned Clients.", ITEMDRAW_DISABLED);
 
-	DisplayMenu(hListMenu, client, MENU_TIME_FOREVER);
+	hListMenu.Display(iClient, MENU_TIME_FOREVER);
 }
 
-Menu_EBan(client)
+void Menu_EBan(int iClient)
 {
-	new Handle:hEBanMenu = CreateMenu(MenuHandler_Menu_EBan);
-	SetMenuTitle(hEBanMenu, "[entWatch] Ban a Client:");
-	SetMenuExitBackButton(hEBanMenu, true);
-	AddTargetsToMenu2(hEBanMenu, client, COMMAND_FILTER_NO_BOTS|COMMAND_FILTER_CONNECTED);
+	Menu hEBanMenu = CreateMenu(MenuHandler_Menu_EBan);
+	hEBanMenu.SetTitle("[entWatch] Ban a Client:");
+	hEBanMenu.ExitBackButton = true;
+	AddTargetsToMenu2(hEBanMenu, iClient, COMMAND_FILTER_NO_BOTS|COMMAND_FILTER_CONNECTED);
 
-	DisplayMenu(hEBanMenu, client, MENU_TIME_FOREVER);
+	DisplayMenu(hEBanMenu, iClient, MENU_TIME_FOREVER);
 }
 
-Menu_Transfer(client)
+void Menu_Transfer(int iClient)
 {
-	new Handle:hTransferMenu = CreateMenu(MenuHandler_Menu_Transfer);
-	new String:sMenuTemp[64];
-	new String:sIndexTemp[16];
-	new iHeldCount = 0;
-	SetMenuTitle(hTransferMenu, "[entWatch] Transfer an item:");
-	SetMenuExitBackButton(hTransferMenu, true);
+	Menu hTransferMenu = CreateMenu(MenuHandler_Menu_Transfer);
+	char sMenuTemp[64];
+	char sIndexTemp[16];
+	int iHeldCount = 0;
+	hTransferMenu.SetTitle("[entWatch] Transfer an item:");
+	hTransferMenu.ExitBackButton = true;
 
-	for (new i = 0; i < entArraySize; i++)
+	for (int i = 0; i < entArraySize; i++)
 	{
 		if (entArray[i][ent_allowtransfer])
 		{
@@ -504,60 +536,60 @@ Menu_Transfer(client)
 			{
 				IntToString(i, sIndexTemp, sizeof(sIndexTemp));
 				Format(sMenuTemp, sizeof(sMenuTemp), "%s | %N (#%i)", entArray[i][ent_name], entArray[i][ent_ownerid], GetClientUserId(entArray[i][ent_ownerid]));
-				AddMenuItem(hTransferMenu, sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
+				hTransferMenu.AddItem(sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
 				iHeldCount++;
 			}
 		}
 	}
 
 	if (!iHeldCount)
-		AddMenuItem(hTransferMenu, "", "No transferable items currently held.", ITEMDRAW_DISABLED);
+		hTransferMenu.AddItem("", "No transferable items currently held.", ITEMDRAW_DISABLED);
 
-	DisplayMenu(hTransferMenu, client, MENU_TIME_FOREVER);
+	hTransferMenu.Display(iClient, MENU_TIME_FOREVER);
 }
 
-Menu_EUnban(client)
+void Menu_EUnban(int iClient)
 {
-	new iBannedClients;
+	int iBannedClients;
 
-	new Handle:hEUnbanMenu = CreateMenu(MenuHandler_Menu_EUnban);
-	SetMenuTitle(hEUnbanMenu, "[entWatch] Unban a Client:");
-	SetMenuExitBackButton(hEUnbanMenu, true);
+	Menu hEUnbanMenu = CreateMenu(MenuHandler_Menu_EUnban);
+	hEUnbanMenu.SetTitle("[entWatch] Unban a Client:");
+	hEUnbanMenu.ExitBackButton = true;
 
-	for (new i = 1; i < MaxClients + 1; i++)
+	for (int i = 1; i < MaxClients + 1; i++)
 	{
 		if (IsClientInGame(i) && AreClientCookiesCached(i))
 		{
-			decl String:sBanLen[32];
+			char sBanLen[32];
 			GetClientCookie(i, g_hCookie_RestrictedLength, sBanLen, sizeof(sBanLen));
-			new iBanLen = StringToInt(sBanLen);
+			int iBanLen = StringToInt(sBanLen);
 
 			if ((iBanLen != 0 && iBanLen >= GetTime()) || iBanLen == 1 || g_bRestricted[i])
 			{
-				new iUserID = GetClientUserId(i);
-				decl String:sUserID[32];
-				decl String:sBuff[64];
+				int iUserID = GetClientUserId(i);
+				char sUserID[32];
+				char sBuff[64];
 				Format(sBuff, sizeof(sBuff), "%N (#%i)", i, iUserID);
 				Format(sUserID, sizeof(sUserID), "%d", iUserID);
 
-				AddMenuItem(hEUnbanMenu, sUserID, sBuff);
+				hEUnbanMenu.AddItem(sUserID, sBuff);
 				iBannedClients++;
 			}
 		}
 	}
 
 	if (!iBannedClients)
-		AddMenuItem(hEUnbanMenu, "", "No Banned Clients.", ITEMDRAW_DISABLED);
+		hEUnbanMenu.AddItem("", "No Banned Clients.", ITEMDRAW_DISABLED);
 
-	DisplayMenu(hEUnbanMenu, client, MENU_TIME_FOREVER);
+	hEUnbanMenu.Display(iClient, MENU_TIME_FOREVER);
 }
 
-public MenuHandler_Menu_List(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
+public int MenuHandler_Menu_List(Menu hMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch(hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hMenu);
+			delete(hMenu);
 
 		case MenuAction_Cancel:
 		{
@@ -567,33 +599,33 @@ public MenuHandler_Menu_List(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
 
 		case MenuAction_Select:
 		{
-			decl String:sOption[32];
-			GetMenuItem(hMenu, iParam2, sOption, sizeof(sOption));
-			new target = GetClientOfUserId(StringToInt(sOption));
+			char sOption[32];
+			hMenu.GetItem(iParam2, sOption, sizeof(sOption));
+			int iTarget = GetClientOfUserId(StringToInt(sOption));
 
-			if (target == 0)
+			if (iTarget == 0)
 			{
 				CPrintToChat(iParam1, "\x07%s[entWatch]\x07%s Player no longer available", color_tag, color_warning);
 
 				if (g_hAdminMenu != INVALID_HANDLE)
 					DisplayTopMenu(g_hAdminMenu, iParam1, TopMenuPosition_LastCategory);
 				else
-					CloseHandle(hMenu);
+					delete(hMenu);
 			}
 			else
 			{
-				Menu_ListTarget(iParam1, target);
+				Menu_ListTarget(iParam1, iTarget);
 			}
 		}
 	}
 }
 
-public MenuHandler_Menu_EBan(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
+public int MenuHandler_Menu_EBan(Menu hMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch(hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hMenu);
+			delete(hMenu);
 
 		case MenuAction_Cancel:
 		{
@@ -603,33 +635,33 @@ public MenuHandler_Menu_EBan(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
 
 		case MenuAction_Select:
 		{
-			decl String:sOption[32];
-			GetMenuItem(hMenu, iParam2, sOption, sizeof(sOption));
-			new target = GetClientOfUserId(StringToInt(sOption));
+			char sOption[32];
+			hMenu.GetItem(iParam2, sOption, sizeof(sOption));
+			int iTarget = GetClientOfUserId(StringToInt(sOption));
 
-			if (target == 0)
+			if (iTarget == 0)
 			{
 				CPrintToChat(iParam1, "\x07%s[entWatch]\x07%s Player no longer available", color_tag, color_warning);
 
 				if (g_hAdminMenu != INVALID_HANDLE)
 					DisplayTopMenu(g_hAdminMenu, iParam1, TopMenuPosition_LastCategory);
 				else
-					CloseHandle(hMenu);
+					delete(hMenu);
 			}
 			else
 			{
-				Menu_EBanTime(iParam1, target);
+				Menu_EBanTime(iParam1, iTarget);
 			}
 		}
 	}
 }
 
-public MenuHandler_Menu_Transfer(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
+public int MenuHandler_Menu_Transfer(Menu hMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch(hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hMenu);
+			delete(hMenu);
 
 		case MenuAction_Cancel:
 		{
@@ -639,9 +671,9 @@ public MenuHandler_Menu_Transfer(Handle:hMenu, MenuAction:hAction, iParam1, iPar
 
 		case MenuAction_Select:
 		{
-			decl String:sOption[32];
-			GetMenuItem(hMenu, iParam2, sOption, sizeof(sOption));
-			new iEntityIndex = StringToInt(sOption);
+			char sOption[32];
+			hMenu.GetItem(iParam2, sOption, sizeof(sOption));
+			int iEntityIndex = StringToInt(sOption);
 
 			if (entArray[iEntityIndex][ent_ownerid] != -1)
 			{
@@ -655,12 +687,12 @@ public MenuHandler_Menu_Transfer(Handle:hMenu, MenuAction:hAction, iParam1, iPar
 	}
 }
 
-public MenuHandler_Menu_EUnban(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
+public int MenuHandler_Menu_EUnban(Menu hMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch(hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hMenu);
+			delete(hMenu);
 
 		case MenuAction_Cancel:
 		{
@@ -670,41 +702,41 @@ public MenuHandler_Menu_EUnban(Handle:hMenu, MenuAction:hAction, iParam1, iParam
 
 		case MenuAction_Select:
 		{
-			decl String:sOption[32];
-			GetMenuItem(hMenu, iParam2, sOption, sizeof(sOption));
-			new target = GetClientOfUserId(StringToInt(sOption));
+			char sOption[32];
+			hMenu.GetItem(iParam2, sOption, sizeof(sOption));
+			int iTarget = GetClientOfUserId(StringToInt(sOption));
 
-			if (target == 0)
+			if (iTarget == 0)
 			{
 				CPrintToChat(iParam1, "\x07%s[entWatch]\x07%s Player no longer available", color_tag, color_warning);
 
 				if (g_hAdminMenu != INVALID_HANDLE)
 					DisplayTopMenu(g_hAdminMenu, iParam1, TopMenuPosition_LastCategory);
 				else
-					CloseHandle(hMenu);
+					delete(hMenu);
 			}
 			else
 			{
-				EUnbanClient(target, iParam1);
+				EUnbanClient(iTarget, iParam1);
 			}
 		}
 	}
 }
 
-Menu_TransferTarget(client, iEntityIndex)
+void Menu_TransferTarget(int iClient, int iEntityIndex)
 {
-	new Handle:hTransferTarget = CreateMenu(MenuHandler_Menu_TransferTarget);
-	new String:sMenuTemp[64];
-	new String:sIndexTemp[32];
-	SetMenuTitle(hTransferTarget, "[entWatch] Transfer target:");
-	SetMenuExitBackButton(hTransferTarget, true);
+	Menu hTransferTarget = CreateMenu(MenuHandler_Menu_TransferTarget);
+	char sMenuTemp[64];
+	char sIndexTemp[32];
+	hTransferTarget.SetTitle("[entWatch] Transfer iTarget:");
+	hTransferTarget.ExitBackButton = true;
 
-	g_iAdminMenuTarget[client] = iEntityIndex;
-	Format(sIndexTemp, sizeof(sIndexTemp), "%i", GetClientUserId(client));
-	Format(sMenuTemp, sizeof(sMenuTemp), "%N (#%s)", client, sIndexTemp);
-	AddMenuItem(hTransferTarget, sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
+	g_iAdminMenuTarget[iClient] = iEntityIndex;
+	Format(sIndexTemp, sizeof(sIndexTemp), "%i", GetClientUserId(iClient));
+	Format(sMenuTemp, sizeof(sMenuTemp), "%N (#%s)", iClient, sIndexTemp);
+	hTransferTarget.AddItem(sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
 
-	for (new i = 1; i < MAXPLAYERS; i++)
+	for (int i = 1; i < MAXPLAYERS; i++)
 	{
 		if (!IsClientInGame(i))
 			continue;
@@ -715,23 +747,23 @@ Menu_TransferTarget(client, iEntityIndex)
 		if (GetClientTeam(i) != GetClientTeam(entArray[iEntityIndex][ent_ownerid]))
 			continue;
 
-		if (i == client)
+		if (i == iClient)
 			continue;
 
 		Format(sIndexTemp, sizeof(sIndexTemp), "%i", GetClientUserId(i));
 		Format(sMenuTemp, sizeof(sMenuTemp), "%N (#%s)", i, sIndexTemp);
-		AddMenuItem(hTransferTarget, sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
+		hTransferTarget.AddItem(sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
 	}
 
-	DisplayMenu(hTransferTarget, client, MENU_TIME_FOREVER);
+	hTransferTarget.Display(iClient, MENU_TIME_FOREVER);
 }
 
-public MenuHandler_Menu_TransferTarget(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
+public int MenuHandler_Menu_TransferTarget(Menu hMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch (hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hMenu);
+			delete(hMenu);
 
 		case MenuAction_Cancel:
 		{
@@ -741,12 +773,12 @@ public MenuHandler_Menu_TransferTarget(Handle:hMenu, MenuAction:hAction, iParam1
 
 		case MenuAction_Select:
 		{
-			decl String:sOption[64];
-			GetMenuItem(hMenu, iParam2, sOption, sizeof(sOption));
-			new iEntityIndex = g_iAdminMenuTarget[iParam1];
-			new receiver = GetClientOfUserId(StringToInt(sOption));
+			char sOption[64];
+			hMenu.GetItem(iParam2, sOption, sizeof(sOption));
+			int iEntityIndex = g_iAdminMenuTarget[iParam1];
+			int iReceiver = GetClientOfUserId(StringToInt(sOption));
 
-			if (receiver == 0)
+			if (iReceiver == 0)
 			{
 				CPrintToChat(iParam1, "\x07%s[entWatch] \x07%sReceiver is not valid anymore.", color_tag, color_warning);
 				return;
@@ -758,34 +790,34 @@ public MenuHandler_Menu_TransferTarget(Handle:hMenu, MenuAction:hAction, iParam1
 				{
 					if (IsValidEdict(entArray[iEntityIndex][ent_weaponid]))
 					{
-						new iCurOwner = entArray[iEntityIndex][ent_ownerid];
+						int iCurOwner = entArray[iEntityIndex][ent_ownerid];
 
-						if (GetClientTeam(receiver) != GetClientTeam(iCurOwner))
+						if (GetClientTeam(iReceiver) != GetClientTeam(iCurOwner))
 						{
 							CPrintToChat(iParam1, "\x07%s[entWatch] \x07%sThe receivers team differs from the targets team.", color_tag, color_warning);
 							return;
 						}
 
-						new String:buffer_classname[64];
-						GetEdictClassname(entArray[iEntityIndex][ent_weaponid], buffer_classname, sizeof(buffer_classname))
+						char ssBuffer_classname[64];
+						GetEdictClassname(entArray[iEntityIndex][ent_weaponid], ssBuffer_classname, sizeof(ssBuffer_classname))
 
 						CS_DropWeapon(iCurOwner, entArray[iEntityIndex][ent_weaponid], false);
-						GivePlayerItem(iCurOwner, buffer_classname);
+						GivePlayerItem(iCurOwner, ssBuffer_classname);
 
 						if (entArray[iEntityIndex][ent_chat])
 						{
 							entArray[iEntityIndex][ent_chat] = false;
-							FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+							FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 							entArray[iEntityIndex][ent_chat] = true;
 						}
 						else
 						{
-							FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+							FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 						}
 
-						CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, iParam1, color_warning, color_name, iCurOwner, color_warning, color_name, receiver);
+						CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, iParam1, color_warning, color_name, iCurOwner, color_warning, color_name, iReceiver);
 
-						LogAction(iParam1, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", iParam1, iCurOwner, receiver);
+						LogAction(iParam1, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", iParam1, iCurOwner, iReceiver);
 					}
 				}
 				else
@@ -797,30 +829,30 @@ public MenuHandler_Menu_TransferTarget(Handle:hMenu, MenuAction:hAction, iParam1
 	}
 }
 
-Menu_EBanTime(client, target)
+void Menu_EBanTime(int iClient, int iTarget)
 {
-	new Handle:hEBanMenuTime = CreateMenu(MenuHandler_Menu_EBanTime);
-	SetMenuTitle(hEBanMenuTime, "[entWatch] Ban Time for %N:", target);
-	SetMenuExitBackButton(hEBanMenuTime, true);
+	Menu hEBanMenuTime = CreateMenu(MenuHandler_Menu_EBanTime);
+	hEBanMenuTime.SetTitle("[entWatch] Ban Time for %N:", iTarget);
+	hEBanMenuTime.ExitBackButton = true;
 
-	g_iAdminMenuTarget[client] = target;
-	AddMenuItem(hEBanMenuTime, "0", "Temporary");
-	AddMenuItem(hEBanMenuTime, "10", "10 Minutes");
-	AddMenuItem(hEBanMenuTime, "60", "1 Hour");
-	AddMenuItem(hEBanMenuTime, "1440", "1 Day");
-	AddMenuItem(hEBanMenuTime, "10080", "1 Week");
-	AddMenuItem(hEBanMenuTime, "40320", "1 Month");
-	AddMenuItem(hEBanMenuTime, "1", "Permanent");
+	g_iAdminMenuTarget[iClient] = iTarget;
+	hEBanMenuTime.AddItem("0", "Temporary");
+	hEBanMenuTime.AddItem("10", "10 iMinutes");
+	hEBanMenuTime.AddItem("60", "1 Hour");
+	hEBanMenuTime.AddItem("1440", "1 Day");
+	hEBanMenuTime.AddItem("10080", "1 Week");
+	hEBanMenuTime.AddItem("40320", "1 Month");
+	hEBanMenuTime.AddItem("1", "Permanent");
 
-	DisplayMenu(hEBanMenuTime, client, MENU_TIME_FOREVER);
+	hEBanMenuTime.Display(iClient, MENU_TIME_FOREVER);
 }
 
-public MenuHandler_Menu_EBanTime(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
+public int MenuHandler_Menu_EBanTime(Menu hMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch(hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hMenu);
+			delete(hMenu);
 
 		case MenuAction_Cancel:
 		{
@@ -830,11 +862,11 @@ public MenuHandler_Menu_EBanTime(Handle:hMenu, MenuAction:hAction, iParam1, iPar
 
 		case MenuAction_Select:
 		{
-			decl String:sOption[64];
-			GetMenuItem(hMenu, iParam2, sOption, sizeof(sOption));
-			new target = g_iAdminMenuTarget[iParam1];
+			char sOption[64];
+			hMenu.GetItem(iParam2, sOption, sizeof(sOption));
+			int iTarget = g_iAdminMenuTarget[iParam1];
 
-			if (target == 0)
+			if (iTarget == 0)
 			{
 				CPrintToChat(iParam1, "\x07%s[entWatch]\x07%s Player no longer available", color_tag, color_warning);
 				Menu_EBan(iParam1);
@@ -843,45 +875,45 @@ public MenuHandler_Menu_EBanTime(Handle:hMenu, MenuAction:hAction, iParam1, iPar
 			{
 				if (StrEqual(sOption, "0"))
 				{
-					EBanClient(target, "0", iParam1);
+					EBanClient(iTarget, "0", iParam1);
 				}
 				else if (StrEqual(sOption, "1"))
 				{
-					EBanClient(target, "1", iParam1);
+					EBanClient(iTarget, "1", iParam1);
 				}
 				else
 				{
-					new String:sBanLen[64];
+					char sBanLen[64];
 					Format(sBanLen, sizeof(sBanLen), "%d", GetTime() + (StringToInt(sOption) * 60));
 
-					EBanClient(target, sBanLen, iParam1);
+					EBanClient(iTarget, sBanLen, iParam1);
 				}
 			}
 		}
 	}
 }
 
-Menu_ListTarget(client, target)
+void Menu_ListTarget(int iClient, int iTarget)
 {
-	new Handle:hListTargetMenu = CreateMenu(MenuHandler_Menu_ListTarget);
-	SetMenuTitle(hListTargetMenu, "[entWatch] Banned Client: %N", target);
-	SetMenuExitBackButton(hListTargetMenu, true);
+	Menu hListTargetMenu = CreateMenu(MenuHandler_Menu_ListTarget);
+	hListTargetMenu.SetTitle("[entWatch] Banned Client: %N", iTarget);
+	hListTargetMenu.ExitBackButton = true;
 
-	new String:sBanExpiryDate[64];
-	new String:sBanIssuedDate[64];
-	new String:sBanDuration[64];
-	new String:sBannedBy[64];
-	new String:sUserID[32];
-	new iBanExpiryDate = g_iRestrictedLength[target];
-	new iBanIssuedDate = g_iRestrictedIssued[target];
-	new iBanDuration = (iBanExpiryDate - iBanIssuedDate) / 60;
-	new iUserID = GetClientUserId(target);
+	char sBanExpiryDate[64];
+	char sBanIssuedDate[64];
+	char sBanDuration[64];
+	char sBannedBy[64];
+	char sUserID[32];
+	int iBanExpiryDate = g_iRestrictedLength[iTarget];
+	int iBanIssuedDate = g_iRestrictedIssued[iTarget];
+	int iBanDuration = (iBanExpiryDate - iBanIssuedDate) / 60;
+	int iUserID = GetClientUserId(iTarget);
 
 	FormatTime(sBanExpiryDate, sizeof(sBanExpiryDate), NULL_STRING, iBanExpiryDate);
 	FormatTime(sBanIssuedDate, sizeof(sBanIssuedDate), NULL_STRING, iBanIssuedDate);
 	Format(sUserID, sizeof(sUserID), "%d", iUserID);
 
-	if (!g_bRestricted[target])
+	if (!g_bRestricted[iTarget])
 	{
 		if (iBanExpiryDate == 1)
 		{
@@ -890,7 +922,7 @@ Menu_ListTarget(client, target)
 		}
 		else
 		{
-			Format(sBanDuration, sizeof(sBanDuration), "Duration: %d %s", iBanDuration, SingularOrMultiple(iBanDuration)?"Minutes":"Minute");
+			Format(sBanDuration, sizeof(sBanDuration), "Duration: %d %s", iBanDuration, SingularOrMultiple(iBanDuration)?"iMinutes":"Minute");
 			Format(sBanExpiryDate, sizeof(sBanExpiryDate), "Expires: %s", sBanExpiryDate);
 		}
 	}
@@ -901,24 +933,24 @@ Menu_ListTarget(client, target)
 	}
 
 	Format(sBanIssuedDate, sizeof(sBanIssuedDate), "Issued on: %s", !(iBanIssuedDate == 0)?sBanIssuedDate:"Unknown");
-	Format(sBannedBy, sizeof(sBannedBy), "Admin SID: %s", g_sRestrictedBy[target][0]?g_sRestrictedBy[target]:"Unknown");
+	Format(sBannedBy, sizeof(sBannedBy), "Admin SID: %s", g_sRestrictedBy[iTarget][0]?g_sRestrictedBy[iTarget]:"Unknown");
 
-	AddMenuItem(hListTargetMenu, "", sBannedBy, ITEMDRAW_DISABLED);
-	AddMenuItem(hListTargetMenu, "", sBanIssuedDate, ITEMDRAW_DISABLED);
-	AddMenuItem(hListTargetMenu, "", sBanExpiryDate, ITEMDRAW_DISABLED);
-	AddMenuItem(hListTargetMenu, "", sBanDuration, ITEMDRAW_DISABLED);
-	AddMenuItem(hListTargetMenu, "", "", ITEMDRAW_SPACER);
-	AddMenuItem(hListTargetMenu, sUserID, "Unban");
+	hListTargetMenu.AddItem("", sBannedBy, ITEMDRAW_DISABLED);
+	hListTargetMenu.AddItem("", sBanIssuedDate, ITEMDRAW_DISABLED);
+	hListTargetMenu.AddItem("", sBanExpiryDate, ITEMDRAW_DISABLED);
+	hListTargetMenu.AddItem("", sBanDuration, ITEMDRAW_DISABLED);
+	hListTargetMenu.AddItem("", "", ITEMDRAW_SPACER);
+	hListTargetMenu.AddItem(sUserID, "Unban");
 
-	DisplayMenu(hListTargetMenu, client, MENU_TIME_FOREVER);
+	hListTargetMenu.Display(iClient, MENU_TIME_FOREVER);
 }
 
-public MenuHandler_Menu_ListTarget(Handle:hMenu, MenuAction:hAction, iParam1, iParam2)
+public int MenuHandler_Menu_ListTarget(Menu hMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch(hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hMenu);
+			delete(hMenu);
 
 		case MenuAction_Cancel:
 		{
@@ -928,18 +960,18 @@ public MenuHandler_Menu_ListTarget(Handle:hMenu, MenuAction:hAction, iParam1, iP
 
 		case MenuAction_Select:
 		{
-			decl String:sOption[32];
-			GetMenuItem(hMenu, iParam2, sOption, sizeof(sOption));
-			new target = GetClientOfUserId(StringToInt(sOption));
+			char sOption[32];
+			hMenu.GetItem(iParam2, sOption, sizeof(sOption));
+			int iTarget = GetClientOfUserId(StringToInt(sOption));
 
-			if (target == 0)
+			if (iTarget == 0)
 			{
 				CPrintToChat(iParam1, "\x07%s[entWatch]\x07%s Player no longer available", color_tag, color_warning);
 				Menu_List(iParam1);
 			}
 			else
 			{
-				EUnbanClient(target, iParam1);
+				EUnbanClient(iTarget, iParam1);
 			}
 		}
 	}
@@ -948,7 +980,7 @@ public MenuHandler_Menu_ListTarget(Handle:hMenu, MenuAction:hAction, iParam1, iP
 //----------------------------------------------------------------------------------------------------
 // Purpose: Set variables
 //----------------------------------------------------------------------------------------------------
-public OnMapStart()
+public void OnMapStart()
 {
 	CleanData();
 	LoadColors();
@@ -958,7 +990,7 @@ public OnMapStart()
 //----------------------------------------------------------------------------------------------------
 // Purpose: Hook RoundStart event
 //----------------------------------------------------------------------------------------------------
-public Action:Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
+public Action Event_RoundStart(Event hEvent, const char[] sName, bool bDontBroadcast)
 {
 	if (g_bConfigLoaded && g_bRoundTransition)
 	{
@@ -971,12 +1003,17 @@ public Action:Event_RoundStart(Handle:event, const String:name[], bool:dontBroad
 //----------------------------------------------------------------------------------------------------
 // Purpose: Hook RoundEnd event
 //----------------------------------------------------------------------------------------------------
-public Action:Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast)
+public Action Event_RoundEnd(Event hEvent, const char[] sName, bool bDontBroadcast)
 {
 	if (g_bConfigLoaded && !g_bRoundTransition)
 	{
-		for (new index = 0; index < entArraySize; index++)
+		for (int index = 0; index < entArraySize; index++)
 		{
+			if (g_eGame == Engine_CSGO)
+			{
+				if (entArray[index][ent_ownerid] != -1)
+					CS_SetClientClanTag(entArray[index][ent_ownerid], "");
+			}
 			SDKUnhook(entArray[index][ent_buttonid], SDKHook_Use, OnButtonUse);
 			entArray[index][ent_weaponid]       = -1;
 			entArray[index][ent_buttonid]       = -1;
@@ -992,60 +1029,60 @@ public Action:Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadca
 //----------------------------------------------------------------------------------------------------
 // Purpose: Set client cookies once cached
 //----------------------------------------------------------------------------------------------------
-public OnClientCookiesCached(client)
+public void OnClientCookiesCached(int iClient)
 {
-	new String:buffer_cookie[32];
-	GetClientCookie(client, g_hCookie_Display, buffer_cookie, sizeof(buffer_cookie));
-	g_bDisplay[client] = bool:StringToInt(buffer_cookie);
+	char sBuffer_cookie[32];
+	GetClientCookie(iClient, g_hCookie_Display, sBuffer_cookie, sizeof(sBuffer_cookie));
+	g_bDisplay[iClient] = view_as<bool>(StringToInt(sBuffer_cookie));
 
-	//GetClientCookie(client, g_hCookie_Restricted, buffer_cookie, sizeof(buffer_cookie));
-	//g_bRestricted[client] = bool:StringToInt(buffer_cookie);
+	//GetClientCookie(iClient, g_hCookie_Restricted, sBuffer_cookie, sizeof(sBuffer_cookie));
+	//g_bRestricted[iClient] = bool:StringToInt(sBuffer_cookie);
 
-	GetClientCookie(client, g_hCookie_RestrictedLength, buffer_cookie, sizeof(buffer_cookie));
+	GetClientCookie(iClient, g_hCookie_RestrictedLength, sBuffer_cookie, sizeof(sBuffer_cookie));
 
-	if (StringToInt(buffer_cookie) != 1 && StringToInt(buffer_cookie) <= GetTime())
+	if (StringToInt(sBuffer_cookie) != 1 && StringToInt(sBuffer_cookie) <= GetTime())
 	{
-		g_iRestrictedLength[client] = 0;
-		SetClientCookie(client, g_hCookie_RestrictedLength, "0");
+		g_iRestrictedLength[iClient] = 0;
+		SetClientCookie(iClient, g_hCookie_RestrictedLength, "0");
 	}
 	else
 	{
-		g_iRestrictedLength[client] = StringToInt(buffer_cookie);
+		g_iRestrictedLength[iClient] = StringToInt(sBuffer_cookie);
 	}
 
-	GetClientCookie(client, g_hCookie_RestrictedIssued, buffer_cookie, sizeof(buffer_cookie));
-	g_iRestrictedIssued[client] = StringToInt(buffer_cookie);
+	GetClientCookie(iClient, g_hCookie_RestrictedIssued, sBuffer_cookie, sizeof(sBuffer_cookie));
+	g_iRestrictedIssued[iClient] = StringToInt(sBuffer_cookie);
 
-	GetClientCookie(client, g_hCookie_RestrictedBy, buffer_cookie, sizeof(buffer_cookie));
-	Format(g_sRestrictedBy[client], sizeof(g_sRestrictedBy[]), "%s", buffer_cookie);
+	GetClientCookie(iClient, g_hCookie_RestrictedBy, sBuffer_cookie, sizeof(sBuffer_cookie));
+	Format(g_sRestrictedBy[iClient], sizeof(g_sRestrictedBy[]), "%s", sBuffer_cookie);
 }
 
 //----------------------------------------------------------------------------------------------------
-// Purpose: Hook weapons and update banned clients to new method
+// Purpose: Hook weapons and update banned clients to int method
 //----------------------------------------------------------------------------------------------------
-public OnClientPutInServer(client)
+public void OnClientPutInServer(int iClient)
 {
-	SDKHook(client, SDKHook_WeaponDropPost, OnWeaponDrop);
-	SDKHook(client, SDKHook_WeaponEquipPost, OnWeaponEquip);
-	SDKHook(client, SDKHook_WeaponCanUse, OnWeaponCanUse);
+	SDKHook(iClient, SDKHook_WeaponDropPost, OnWeaponDrop);
+	SDKHook(iClient, SDKHook_WeaponEquipPost, OnWeaponEquip);
+	SDKHook(iClient, SDKHook_WeaponCanUse, OnWeaponCanUse);
 
-	g_bRestricted[client] = false;
+	g_bRestricted[iClient] = false;
 
-	if (!AreClientCookiesCached(client))
+	if (!AreClientCookiesCached(iClient))
 	{
-		g_bDisplay[client] = false;
-		//g_bRestricted[client] = false;
-		g_iRestrictedLength[client] = 0;
+		g_bDisplay[iClient] = false;
+		//g_bRestricted[iClient] = false;
+		g_iRestrictedLength[iClient] = 0;
 	}
 	else
 	{
-		decl String:restricted[32];
-		GetClientCookie(client, g_hCookie_Restricted, restricted, sizeof(restricted));
+		char sRestricted[32];
+		GetClientCookie(iClient, g_hCookie_Restricted, sRestricted, sizeof(sRestricted));
 
-		if (StringToInt(restricted) == 1)
+		if (StringToInt(sRestricted) == 1)
 		{
-			SetClientCookie(client, g_hCookie_RestrictedLength, "1");
-			SetClientCookie(client, g_hCookie_Restricted, "0");
+			SetClientCookie(iClient, g_hCookie_RestrictedLength, "1");
+			SetClientCookie(iClient, g_hCookie_Restricted, "0");
 		}
 	}
 }
@@ -1053,32 +1090,32 @@ public OnClientPutInServer(client)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Notify of Disconnect if they had a special weapon and unhook weapons
 //----------------------------------------------------------------------------------------------------
-public OnClientDisconnect(client)
+public void OnClientDisconnect(int iClient)
 {
 	if (g_bConfigLoaded && !g_bRoundTransition)
 	{
-		for (new index = 0; index < entArraySize; index++)
+		for (int index = 0; index < entArraySize; index++)
 		{
-			if (entArray[index][ent_ownerid] != -1 && entArray[index][ent_ownerid] == client)
+			if (entArray[index][ent_ownerid] != -1 && entArray[index][ent_ownerid] == iClient)
 			{
 				entArray[index][ent_ownerid] = -1;
 
 				if (entArray[index][ent_forcedrop] && IsValidEdict(entArray[index][ent_weaponid]))
-					CS_DropWeapon(client, entArray[index][ent_weaponid], false);
+					CS_DropWeapon(iClient, entArray[index][ent_weaponid], false);
 
 				if (entArray[index][ent_chat])
 				{
-					new String:buffer_steamid[32];
-					GetClientAuthId(client, AuthId_Steam2, buffer_steamid, sizeof(buffer_steamid));
-					ReplaceString(buffer_steamid, sizeof(buffer_steamid), "STEAM_", "", true);
+					char sBuffer_steamid[32];
+					GetClientAuthId(iClient, AuthId_Steam2, sBuffer_steamid, sizeof(sBuffer_steamid));
+					ReplaceString(sBuffer_steamid, sizeof(sBuffer_steamid), "STEAM_", "", true);
 
-					for (new ply = 1; ply <= MaxClients; ply++)
+					for (int iPly = 1; iPly <= MaxClients; iPly++)
 					{
-						if (IsClientConnected(ply) && IsClientInGame(ply))
+						if (IsClientConnected(iPly) && IsClientInGame(iPly))
 						{
-							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(client) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iClient) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 							{
-								CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, client, color_disconnect, color_steamid, buffer_steamid, color_disconnect, color_disconnect, "disconnect", entArray[index][ent_color], entArray[index][ent_name]);
+								CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iClient, color_disconnect, color_steamid, sBuffer_steamid, color_disconnect, color_disconnect, "disconnect", entArray[index][ent_color], entArray[index][ent_name]);
 							}
 						}
 					}
@@ -1087,46 +1124,47 @@ public OnClientDisconnect(client)
 		}
 	}
 
-	SDKUnhook(client, SDKHook_WeaponDropPost, OnWeaponDrop);
-	SDKUnhook(client, SDKHook_WeaponEquipPost, OnWeaponEquip);
-	SDKUnhook(client, SDKHook_WeaponCanUse, OnWeaponCanUse);
+	SDKUnhook(iClient, SDKHook_WeaponDropPost, OnWeaponDrop);
+	SDKUnhook(iClient, SDKHook_WeaponEquipPost, OnWeaponEquip);
+	SDKUnhook(iClient, SDKHook_WeaponCanUse, OnWeaponCanUse);
 
-	g_bDisplay[client] = false;
-	g_bRestricted[client] = false;
-	g_iRestrictedLength[client] = 0;
+	g_bDisplay[iClient] = false;
+	g_bRestricted[iClient] = false;
+	g_iRestrictedLength[iClient] = 0;
 }
 
 //----------------------------------------------------------------------------------------------------
 // Purpose: Notify of Death if they had a special weapon
 //----------------------------------------------------------------------------------------------------
-public Action:Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast)
+public Action Event_PlayerDeath(Event hEvent, const char[] sName, bool bDontBroadcast)
 {
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	int iClient = GetClientOfUserId(GetEventInt(hEvent, "userid"));
 
 	if (g_bConfigLoaded && !g_bRoundTransition)
 	{
-		for (new index = 0; index < entArraySize; index++)
+		for (int index = 0; index < entArraySize; index++)
 		{
-			if (entArray[index][ent_ownerid] != -1 && entArray[index][ent_ownerid] == client)
+			if (entArray[index][ent_ownerid] != -1 && entArray[index][ent_ownerid] == iClient)
 			{
+				CS_SetClientClanTag(entArray[index][ent_ownerid], "");
 				entArray[index][ent_ownerid] = -1;
 
 				if (entArray[index][ent_forcedrop] && IsValidEdict(entArray[index][ent_weaponid]))
-					CS_DropWeapon(client, entArray[index][ent_weaponid], false);
+					CS_DropWeapon(iClient, entArray[index][ent_weaponid], false);
 
 				if (entArray[index][ent_chat])
 				{
-					new String:buffer_steamid[32];
-					GetClientAuthId(client, AuthId_Steam2, buffer_steamid, sizeof(buffer_steamid));
-					ReplaceString(buffer_steamid, sizeof(buffer_steamid), "STEAM_", "", true);
+					char sBuffer_steamid[32];
+					GetClientAuthId(iClient, AuthId_Steam2, sBuffer_steamid, sizeof(sBuffer_steamid));
+					ReplaceString(sBuffer_steamid, sizeof(sBuffer_steamid), "STEAM_", "", true);
 
-					for (new ply = 1; ply <= MaxClients; ply++)
+					for (int iPly = 1; iPly <= MaxClients; iPly++)
 					{
-						if (IsClientConnected(ply) && IsClientInGame(ply))
+						if (IsClientConnected(iPly) && IsClientInGame(iPly))
 						{
-							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(client) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iClient) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 							{
-								CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, client, color_death, color_steamid, buffer_steamid, color_death, color_death, "death", entArray[index][ent_color], entArray[index][ent_name]);
+								CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iClient, color_death, color_steamid, sBuffer_steamid, color_death, color_death, "death", entArray[index][ent_color], entArray[index][ent_name]);
 							}
 						}
 					}
@@ -1139,31 +1177,31 @@ public Action:Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroa
 //----------------------------------------------------------------------------------------------------
 // Purpose: Notify when they pick up a special weapon
 //----------------------------------------------------------------------------------------------------
-public Action:OnWeaponEquip(client, weapon)
+public Action OnWeaponEquip(int iClient, int iWeapon)
 {
-	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(weapon))
+	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(iWeapon))
 	{
-		for (new index = 0; index < entArraySize; index++)
+		for (int index = 0; index < entArraySize; index++)
 		{
-			if (entArray[index][ent_hammerid] == Entity_GetHammerID(weapon))
+			if (entArray[index][ent_hammerid] == Entity_GetHammerID(iWeapon))
 			{
-				if (entArray[index][ent_weaponid] != -1 && entArray[index][ent_weaponid] == weapon)
+				if (entArray[index][ent_weaponid] != -1 && entArray[index][ent_weaponid] == iWeapon)
 				{
-					entArray[index][ent_ownerid] = client;
+					entArray[index][ent_ownerid] = iClient;
 
 					if (entArray[index][ent_chat])
 					{
-						new String:buffer_steamid[32];
-						GetClientAuthId(client, AuthId_Steam2, buffer_steamid, sizeof(buffer_steamid));
-						ReplaceString(buffer_steamid, sizeof(buffer_steamid), "STEAM_", "", true);
+						char sBuffer_steamid[32];
+						GetClientAuthId(iClient, AuthId_Steam2, sBuffer_steamid, sizeof(sBuffer_steamid));
+						ReplaceString(sBuffer_steamid, sizeof(sBuffer_steamid), "STEAM_", "", true);
 
-						for (new ply = 1; ply <= MaxClients; ply++)
+						for (int iPly = 1; iPly <= MaxClients; iPly++)
 						{
-							if (IsClientConnected(ply) && IsClientInGame(ply))
+							if (IsClientConnected(iPly) && IsClientInGame(iPly))
 							{
-								if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(client) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+								if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iClient) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 								{
-									CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, client, color_pickup, color_steamid, buffer_steamid, color_pickup, color_pickup, "pickup", entArray[index][ent_color], entArray[index][ent_name]);
+									CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iClient, color_pickup, color_steamid, sBuffer_steamid, color_pickup, color_pickup, "pickup", entArray[index][ent_color], entArray[index][ent_name]);
 								}
 							}
 						}
@@ -1179,31 +1217,32 @@ public Action:OnWeaponEquip(client, weapon)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Notify when they drop a special weapon
 //----------------------------------------------------------------------------------------------------
-public Action:OnWeaponDrop(client, weapon)
+public Action OnWeaponDrop(int iClient, int iWeapon)
 {
-	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(weapon))
+	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(iWeapon))
 	{
-		for (new index = 0; index < entArraySize; index++)
+		for (int index = 0; index < entArraySize; index++)
 		{
-			if (entArray[index][ent_hammerid] == Entity_GetHammerID(weapon))
+			if (entArray[index][ent_hammerid] == Entity_GetHammerID(iWeapon))
 			{
-				if (entArray[index][ent_weaponid] != -1 && entArray[index][ent_weaponid] == weapon)
+				if (entArray[index][ent_weaponid] != -1 && entArray[index][ent_weaponid] == iWeapon)
 				{
+					CS_SetClientClanTag(entArray[index][ent_ownerid], "");
 					entArray[index][ent_ownerid] = -1;
 
 					if (entArray[index][ent_chat])
 					{
-						new String:buffer_steamid[32];
-						GetClientAuthId(client, AuthId_Steam2, buffer_steamid, sizeof(buffer_steamid));
-						ReplaceString(buffer_steamid, sizeof(buffer_steamid), "STEAM_", "", true);
+						char sBuffer_steamid[32];
+						GetClientAuthId(iClient, AuthId_Steam2, sBuffer_steamid, sizeof(sBuffer_steamid));
+						ReplaceString(sBuffer_steamid, sizeof(sBuffer_steamid), "STEAM_", "", true);
 
-						for (new ply = 1; ply <= MaxClients; ply++)
+						for (int iPly = 1; iPly <= MaxClients; iPly++)
 						{
-							if (IsClientConnected(ply) && IsClientInGame(ply))
+							if (IsClientConnected(iPly) && IsClientInGame(iPly))
 							{
-								if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(client) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+								if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iClient) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 								{
-									CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, client, color_drop, color_steamid, buffer_steamid, color_drop, color_drop, "drop", entArray[index][ent_color], entArray[index][ent_name]);
+									CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iClient, color_drop, color_steamid, sBuffer_steamid, color_drop, color_drop, "drop", entArray[index][ent_color], entArray[index][ent_name]);
 								}
 							}
 						}
@@ -1219,38 +1258,38 @@ public Action:OnWeaponDrop(client, weapon)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Prevent banned players from picking up special weapons
 //----------------------------------------------------------------------------------------------------
-public Action:OnWeaponCanUse(client, weapon)
+public Action OnWeaponCanUse(int iClient, int iWeapon)
 {
-	if (IsFakeClient(client))
+	if (IsFakeClient(iClient))
 		return Plugin_Handled;
 
-	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(weapon))
+	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(iWeapon))
 	{
-		for (new index = 0; index < entArraySize; index++)
+		for (int index = 0; index < entArraySize; index++)
 		{
-			if (entArray[index][ent_hammerid] == Entity_GetHammerID(weapon))
+			if (entArray[index][ent_hammerid] == Entity_GetHammerID(iWeapon))
 			{
 				if (entArray[index][ent_weaponid] == -1)
 				{
-					entArray[index][ent_weaponid] = weapon;
+					entArray[index][ent_weaponid] = iWeapon;
 
 					if (entArray[index][ent_buttonid] == -1 && entArray[index][ent_mode] != 0)
 					{
-						new String:buffer_targetname[32];
-						Entity_GetTargetName(weapon, buffer_targetname, sizeof(buffer_targetname));
+						char sBuffer_targetname[32];
+						Entity_GetTargetName(iWeapon, sBuffer_targetname, sizeof(sBuffer_targetname));
 
-						new button = -1;
-						while ((button = FindEntityByClassname(button, entArray[index][ent_buttonclass])) != -1)
+						int iButton = -1;
+						while ((iButton = FindEntityByClassname(iButton, entArray[index][ent_buttonclass])) != -1)
 						{
-							if (IsValidEdict(button))
+							if (IsValidEdict(iButton))
 							{
-								new String:buffer_parentname[32];
-								Entity_GetParentName(button, buffer_parentname, sizeof(buffer_parentname));
+								char sBuffer_parentname[32];
+								Entity_GetParentName(iButton, sBuffer_parentname, sizeof(sBuffer_parentname));
 
-								if (StrEqual(buffer_targetname, buffer_parentname))
+								if (StrEqual(sBuffer_targetname, sBuffer_parentname))
 								{
-									SDKHook(button, SDKHook_Use, OnButtonUse);
-									entArray[index][ent_buttonid] = button;
+									SDKHook(iButton, SDKHook_Use, OnButtonUse);
+									entArray[index][ent_buttonid] = iButton;
 									break;
 								}
 							}
@@ -1258,30 +1297,30 @@ public Action:OnWeaponCanUse(client, weapon)
 					}
 				}
 
-				if (entArray[index][ent_weaponid] == weapon)
+				if (entArray[index][ent_weaponid] == iWeapon)
 				{
 					if (entArray[index][ent_blockpickup])
 					{
 						return Plugin_Handled;
 					}
 
-					if (g_bRestricted[client])
+					if (g_bRestricted[iClient])
 					{
 						return Plugin_Handled;
 					}
 
-					if (g_iRestrictedLength[client] != 1 && g_iRestrictedLength[client] != 0 && g_iRestrictedLength[client] <= GetTime())
+					if (g_iRestrictedLength[iClient] != 1 && g_iRestrictedLength[iClient] != 0 && g_iRestrictedLength[iClient] <= GetTime())
 					{
-						//g_bRestricted[client] = false;
-						g_iRestrictedLength[client] = 0;
+						//g_bRestricted[iClient] = false;
+						g_iRestrictedLength[iClient] = 0;
 
-						SetClientCookie(client, g_hCookie_RestrictedLength, "0");
-						//SetClientCookie(client, g_hCookie_Restricted, "0");
+						SetClientCookie(iClient, g_hCookie_RestrictedLength, "0");
+						//SetClientCookie(iClient, g_hCookie_Restricted, "0");
 
 						return Plugin_Continue;
 					}
 
-					if (g_iRestrictedLength[client] > GetTime() || g_iRestrictedLength[client] == 1)
+					if (g_iRestrictedLength[iClient] > GetTime() || g_iRestrictedLength[iClient] == 1)
 					{
 						return Plugin_Handled;
 					}
@@ -1298,23 +1337,27 @@ public Action:OnWeaponCanUse(client, weapon)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Notify when they use a special weapon
 //----------------------------------------------------------------------------------------------------
-public Action:OnButtonUse(button, activator, caller, UseType:type, Float:value)
+public Action OnButtonUse(int iButton, int iActivator, int iCaller, UseType uType, float fvalue)
 {
-	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(button))
+	if (g_bConfigLoaded && !g_bRoundTransition && IsValidEdict(iButton))
 	{
-		for (new index = 0; index < entArraySize; index++)
+		int iOffset = FindDataMapOffs(iButton, "m_bLocked");
+		if (iOffset != -1 && GetEntData(iButton, iOffset, 1))
+			return Plugin_Handled;
+
+		for (int index = 0; index < entArraySize; index++)
 		{
-			if (entArray[index][ent_buttonid] != -1 && entArray[index][ent_buttonid] == button)
+			if (entArray[index][ent_buttonid] != -1 && entArray[index][ent_buttonid] == iButton)
 			{
-				if (entArray[index][ent_ownerid] != activator && entArray[index][ent_ownerid] != caller)
+				if (entArray[index][ent_ownerid] != iActivator && entArray[index][ent_ownerid] != iCaller)
 					return Plugin_Handled;
 
 				if (entArray[index][ent_hasfiltername])
-					DispatchKeyValue(activator, "targetname", entArray[index][ent_filtername]);
+					DispatchKeyValue(iActivator, "targetname", entArray[index][ent_filtername]);
 
-				new String:buffer_steamid[32];
-				GetClientAuthId(activator, AuthId_Steam2, buffer_steamid, sizeof(buffer_steamid));
-				ReplaceString(buffer_steamid, sizeof(buffer_steamid), "STEAM_", "", true);
+				char sBuffer_steamid[32];
+				GetClientAuthId(iActivator, AuthId_Steam2, sBuffer_steamid, sizeof(sBuffer_steamid));
+				ReplaceString(sBuffer_steamid, sizeof(sBuffer_steamid), "STEAM_", "", true);
 
 				if (entArray[index][ent_mode] == 1)
 				{
@@ -1322,13 +1365,13 @@ public Action:OnButtonUse(button, activator, caller, UseType:type, Float:value)
 				}
 				else if (entArray[index][ent_mode] == 2 && entArray[index][ent_cooldowntime] <= -1)
 				{
-					for (new ply = 1; ply <= MaxClients; ply++)
+					for (int iPly = 1; iPly <= MaxClients; iPly++)
 					{
-						if (IsClientConnected(ply) && IsClientInGame(ply))
+						if (IsClientConnected(iPly) && IsClientInGame(iPly))
 						{
-							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(activator) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iActivator) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 							{
-								CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, activator, color_use, color_steamid, buffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
+								CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iActivator, color_use, color_steamid, sBuffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
 							}
 						}
 					}
@@ -1338,13 +1381,13 @@ public Action:OnButtonUse(button, activator, caller, UseType:type, Float:value)
 				}
 				else if (entArray[index][ent_mode] == 3 && entArray[index][ent_uses] < entArray[index][ent_maxuses])
 				{
-					for (new ply = 1; ply <= MaxClients; ply++)
+					for (int iPly = 1; iPly <= MaxClients; iPly++)
 					{
-						if (IsClientConnected(ply) && IsClientInGame(ply))
+						if (IsClientConnected(iPly) && IsClientInGame(iPly))
 						{
-							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(activator) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iActivator) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 							{
-								CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, activator, color_use, color_steamid, buffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
+								CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iActivator, color_use, color_steamid, sBuffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
 							}
 						}
 					}
@@ -1354,13 +1397,13 @@ public Action:OnButtonUse(button, activator, caller, UseType:type, Float:value)
 				}
 				else if (entArray[index][ent_mode] == 4 && entArray[index][ent_uses] < entArray[index][ent_maxuses] && entArray[index][ent_cooldowntime] <= -1)
 				{
-					for (new ply = 1; ply <= MaxClients; ply++)
+					for (int iPly = 1; iPly <= MaxClients; iPly++)
 					{
-						if (IsClientConnected(ply) && IsClientInGame(ply))
+						if (IsClientConnected(iPly) && IsClientInGame(iPly))
 						{
-							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(activator) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iActivator) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 							{
-								CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, activator, color_use, color_steamid, buffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
+								CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iActivator, color_use, color_steamid, sBuffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
 							}
 						}
 					}
@@ -1371,13 +1414,13 @@ public Action:OnButtonUse(button, activator, caller, UseType:type, Float:value)
 				}
 				else if (entArray[index][ent_mode] == 5 && entArray[index][ent_cooldowntime] <= -1)
 				{
-					for (new ply = 1; ply <= MaxClients; ply++)
+					for (int iPly = 1; iPly <= MaxClients; iPly++)
 					{
-						if (IsClientConnected(ply) && IsClientInGame(ply))
+						if (IsClientConnected(iPly) && IsClientInGame(iPly))
 						{
-							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == GetClientTeam(activator) || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == GetClientTeam(iActivator) || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 							{
-								CPrintToChat(ply, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, activator, color_use, color_steamid, buffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
+								CPrintToChat(iPly, "\x07%s[entWatch] \x07%s%N \x07%s(\x07%s%s\x07%s) \x07%s%t \x07%s%s", color_tag, color_name, iActivator, color_use, color_steamid, sBuffer_steamid, color_use, color_use, "use", entArray[index][ent_color], entArray[index][ent_name]);
 							}
 						}
 					}
@@ -1401,21 +1444,22 @@ public Action:OnButtonUse(button, activator, caller, UseType:type, Float:value)
 }
 
 //----------------------------------------------------------------------------------------------------
-// Purpose: Display current special weapon holders
+// Purpose: Organize current special weapon holders
 //----------------------------------------------------------------------------------------------------
-public Action:Timer_DisplayHUD(Handle:timer)
+public Action Timer_NotifHUD(Handle htimer)
 {
 	if (GetConVarBool(g_hCvar_DisplayEnabled))
 	{
 		if (g_bConfigLoaded && !g_bRoundTransition)
 		{
-			new String:buffer_teamtext[5][250];
+			g_iStoreIndex = 0;
+			char sBuffer_teamtext[5][250];
 
-			for (new index = 0; index < entArraySize; index++)
+			for (int index = 0; index < entArraySize; index++)
 			{
 				if (entArray[index][ent_hud] && entArray[index][ent_ownerid] != -1)
 				{
-					new String:buffer_temp[128];
+					// char //sBuffer_//temp[128];
 
 					if (GetConVarBool(g_hCvar_DisplayCooldowns))
 					{
@@ -1423,39 +1467,67 @@ public Action:Timer_DisplayHUD(Handle:timer)
 						{
 							if (entArray[index][ent_cooldowntime] > 0)
 							{
-								Format(buffer_temp, sizeof(buffer_temp), "%s[%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_cooldowntime], entArray[index][ent_ownerid]);
+								Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_cooldowntime], entArray[index][ent_ownerid]);
+								IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+								if (g_eGame == Engine_CSGO)
+									CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+								g_iStoreIndex++;
 							}
 							else
 							{
-								Format(buffer_temp, sizeof(buffer_temp), "%s[%s]: %N\n", entArray[index][ent_shortname], "R", entArray[index][ent_ownerid]);
+								Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%s]: %N\n", entArray[index][ent_shortname], "R", entArray[index][ent_ownerid]);
+								IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+								if (g_eGame == Engine_CSGO)
+									CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+								g_iStoreIndex++;
 							}
 						}
 						else if (entArray[index][ent_mode] == 3)
 						{
 							if (entArray[index][ent_uses] < entArray[index][ent_maxuses])
 							{
-								Format(buffer_temp, sizeof(buffer_temp), "%s[%d/%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_uses], entArray[index][ent_maxuses], entArray[index][ent_ownerid]);
+								Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%d/%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_uses], entArray[index][ent_maxuses], entArray[index][ent_ownerid]);
+								IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+								if (g_eGame == Engine_CSGO)
+									CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+								g_iStoreIndex++;
 							}
 							else
 							{
-								Format(buffer_temp, sizeof(buffer_temp), "%s[%s]: %N\n", entArray[index][ent_shortname], "D", entArray[index][ent_ownerid]);
+								Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%s]: %N\n", entArray[index][ent_shortname], "D", entArray[index][ent_ownerid]);
+								IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+								if (g_eGame == Engine_CSGO)
+									CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+								g_iStoreIndex++;
 							}
 						}
 						else if (entArray[index][ent_mode] == 4)
 						{
 							if (entArray[index][ent_cooldowntime] > 0)
 							{
-								Format(buffer_temp, sizeof(buffer_temp), "%s[%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_cooldowntime], entArray[index][ent_ownerid]);
+								Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_cooldowntime], entArray[index][ent_ownerid]);
+								IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+								if (g_eGame == Engine_CSGO)
+									CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+								g_iStoreIndex++;
 							}
 							else
 							{
 								if (entArray[index][ent_uses] < entArray[index][ent_maxuses])
 								{
-									Format(buffer_temp, sizeof(buffer_temp), "%s[%d/%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_uses], entArray[index][ent_maxuses], entArray[index][ent_ownerid]);
+									Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%d/%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_uses], entArray[index][ent_maxuses], entArray[index][ent_ownerid]);
+									IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+									if (g_eGame == Engine_CSGO)
+										CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+									g_iStoreIndex++;
 								}
 								else
 								{
-									Format(buffer_temp, sizeof(buffer_temp), "%s[%s]: %N\n", entArray[index][ent_shortname], "D", entArray[index][ent_ownerid]);
+									Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%s]: %N\n", entArray[index][ent_shortname], "D", entArray[index][ent_ownerid]);
+									IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+									if (g_eGame == Engine_CSGO)
+										CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+									g_iStoreIndex++;
 								}
 							}
 						}
@@ -1463,53 +1535,76 @@ public Action:Timer_DisplayHUD(Handle:timer)
 						{
 							if (entArray[index][ent_cooldowntime] > 0)
 							{
-								Format(buffer_temp, sizeof(buffer_temp), "%s[%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_cooldowntime], entArray[index][ent_ownerid]);
+								Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_cooldowntime], entArray[index][ent_ownerid]);
+								IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+								if (g_eGame == Engine_CSGO)
+									CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+								g_iStoreIndex++;
 							}
 							else
 							{
-								Format(buffer_temp, sizeof(buffer_temp), "%s[%d/%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_uses], entArray[index][ent_maxuses], entArray[index][ent_ownerid]);
+								Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%d/%d]: %N\n", entArray[index][ent_shortname], entArray[index][ent_uses], entArray[index][ent_maxuses], entArray[index][ent_ownerid]);
+								IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+								if (g_eGame == Engine_CSGO)
+									CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+								g_iStoreIndex++;
 							}
 						}
 						else
 						{
-							Format(buffer_temp, sizeof(buffer_temp), "%s[%s]: %N\n", entArray[index][ent_shortname], "N/A", entArray[index][ent_ownerid]);
+							Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s[%s]: %N\n", entArray[index][ent_shortname], "N/A", entArray[index][ent_ownerid]);
+							IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+							if (g_eGame == Engine_CSGO)
+								CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+							g_iStoreIndex++;
 						}
 					}
 					else
 					{
-						Format(buffer_temp, sizeof(buffer_temp), "%s: %N\n", entArray[index][ent_shortname], entArray[index][ent_ownerid]);
+						Format(g_sEntMsg[g_iStoreIndex], sizeof(g_sEntMsg[]), "%s: %N\n", entArray[index][ent_shortname], entArray[index][ent_ownerid]);
+						IntToString(index, g_sEntIndex[g_iStoreIndex], sizeof(g_sEntIndex[]));
+						if (g_eGame == Engine_CSGO)
+							CS_SetClientClanTag(entArray[index][ent_ownerid], g_sEntIndex[g_iStoreIndex]);
+						g_iStoreIndex++;
 					}
 
-					if (strlen(buffer_temp) + strlen(buffer_teamtext[GetClientTeam(entArray[index][ent_ownerid])]) <= sizeof(buffer_teamtext[]))
+					if (g_eGame == Engine_CSS)
 					{
-						StrCat(buffer_teamtext[GetClientTeam(entArray[index][ent_ownerid])], sizeof(buffer_teamtext[]), buffer_temp);
+						if (strlen(g_sEntIndex[g_iStoreIndex]) + strlen(sBuffer_teamtext[GetClientTeam(entArray[index][ent_ownerid])]) <= sizeof(sBuffer_teamtext[]))
+						{
+							StrCat(sBuffer_teamtext[GetClientTeam(entArray[index][ent_ownerid])], sizeof(sBuffer_teamtext[]), g_sEntIndex[g_iStoreIndex]);
+						}
 					}
 				}
 			}
 
-			for (new ply = 1; ply <= MaxClients; ply++)
+			//CSS Style HUD
+			if (g_eGame == Engine_CSS)
 			{
-				if (IsClientConnected(ply) && IsClientInGame(ply))
+				for (int iPly = 1; iPly <= MaxClients; iPly++)
 				{
-					if (g_bDisplay[ply])
+					if (IsClientConnected(iPly) && IsClientInGame(iPly))
 					{
-						new String:buffer_text[250];
-
-						for (new teamid = 0; teamid < sizeof(buffer_teamtext); teamid++)
+						if (g_bDisplay[iPly])
 						{
-							if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(ply) == teamid || !IsPlayerAlive(ply) || CheckCommandAccess(ply, "entWatch_chat", ADMFLAG_CHAT)))
+							char sBuffer_text[250];
+
+							for (int iTeamid = 0; iTeamid < sizeof(sBuffer_teamtext); iTeamid++)
 							{
-								if (strlen(buffer_teamtext[teamid]) + strlen(buffer_text) <= sizeof(buffer_text))
+								if (!GetConVarBool(g_hCvar_ModeTeamOnly) || (GetConVarBool(g_hCvar_ModeTeamOnly) && GetClientTeam(iPly) == iTeamid || !IsPlayerAlive(iPly) || CheckCommandAccess(iPly, "entWatch_chat", ADMFLAG_CHAT)))
 								{
-									StrCat(buffer_text, sizeof(buffer_text), buffer_teamtext[teamid]);
+									if (strlen(sBuffer_teamtext[iTeamid]) + strlen(sBuffer_text) <= sizeof(sBuffer_text))
+									{
+										StrCat(sBuffer_text, sizeof(sBuffer_text), sBuffer_teamtext[iTeamid]);
+									}
 								}
 							}
-						}
 
-						new Handle:hBuffer = StartMessageOne("KeyHintText", ply);
-						BfWriteByte(hBuffer, 1);
-						BfWriteString(hBuffer, buffer_text);
-						EndMessage();
+							Handle hBuffer = StartMessageOne("KeyHintText", iPly);
+							BfWriteByte(hBuffer, 1);
+							BfWriteString(hBuffer, sBuffer_text);
+							EndMessage();
+						}
 					}
 				}
 			}
@@ -1518,13 +1613,134 @@ public Action:Timer_DisplayHUD(Handle:timer)
 }
 
 //----------------------------------------------------------------------------------------------------
+// Purpose: Display current special weapon holders
+//----------------------------------------------------------------------------------------------------
+public Action Timer_DisplayHUD(Handle hTimer)
+{
+	for (int iClient = 1; iClient <= MaxClients; iClient++)
+	{
+		if (IsClientConnected(iClient) && IsClientInGame(iClient))
+		{
+			if (g_bDisplay[iClient])
+			{
+				if (g_bDisplay[iClient] && (!IsVoteInProgress() || !IsClientInVotePool(iClient))
+					&& GetClientMenu(iClient) == MenuSource_None)
+				{
+					g_hEntMenu[iClient] = CreateMenu(MenuHandler_EntMenu);
+					g_hEntMenu[iClient].SetTitle("Entity Hud Menu");
+					g_hEntMenu[iClient].ExitButton = true;
+
+					for (int index = 0; index < g_iStoreIndex; index++)
+					{
+						//LogMessage("str equal returns entmsg at the index of %i, is %s.", index , g_sEntMsg[index]);
+							if(!StrEqual(g_sEntMsg[index], ""))
+							{
+								AddMenuItem(g_hEntMenu[iClient], g_sEntIndex[index], g_sEntMsg[index]);
+							}
+					}	
+					if (g_hEntMenu[iClient] != null)
+						g_hEntMenu[iClient].Display(iClient, MENU_TIME_FOREVER);
+				}
+				else if (g_hEntMenu[iClient] != INVALID_HANDLE)
+				{
+					CancelClientMenu(iClient, true);
+				}
+			}
+
+		}
+	}
+}
+  
+public int MenuHandler_EntMenu(Menu hEntMenu, MenuAction eAction, int iClient, int iItem)
+{ 
+	switch (eAction)
+	{
+		case MenuAction_Select:
+		{
+			char sTitle[251];
+			char sText[251];
+			char sSteamId[33];
+			char sCurrIndex[2];
+			
+			int iItemIndex = -1;
+			
+			if (iItem == MenuCancel_Exit)
+			{
+				g_bDisplay[iClient] = false;
+				g_hEntMenu[iClient] = null;
+				g_hEntMenu[iClient].Cancel();
+			}
+			else
+			{
+				hEntMenu.GetItem(iItem, sCurrIndex, sizeof(sCurrIndex));
+				iItemIndex = (StringToInt(sCurrIndex));
+				
+				if(iItemIndex != -1)
+				{
+					delete(g_hEntMenu[iClient]);
+					g_bDisplay[iClient] = false;
+
+					Format(sTitle, sizeof(sTitle), "User Information that holds a %s", entArray[iItemIndex][ent_shortname]);
+					
+					GetClientAuthId(entArray[iItemIndex][ent_ownerid], AuthId_Steam2, sSteamId, sizeof(sSteamId));
+					Format(sText, sizeof(sText), "Client Name: %N\nClient SteamID: %s\nClient UserID: %d\n", entArray[iItemIndex][ent_ownerid], sSteamId, GetClientUserId(entArray[iItemIndex][ent_ownerid]));
+					
+					g_hInfoPlayer[iClient] = new Panel();
+			
+					SetPanelTitle(g_hInfoPlayer[iClient],sTitle);
+					DrawPanelText(g_hInfoPlayer[iClient],"[EntWatch]");
+					DrawPanelText(g_hInfoPlayer[iClient],sText);
+					DrawPanelItem(g_hInfoPlayer[iClient],"Exit")
+					
+					g_hInfoPlayer[iClient].Send(iClient, PanelHandler_DetailInfo, MENU_TIME_FOREVER);
+					
+					delete g_hInfoPlayer[iClient];
+				}
+			}
+		}
+		case MenuAction_Cancel:
+		{
+			if (iItem == MenuCancel_Exit)
+			{
+				g_bDisplay[iClient] = false;
+			}
+		}
+		case MenuAction_End:
+		{
+			delete(hEntMenu);
+		}
+	}
+}
+
+public int PanelHandler_DetailInfo(Menu hInfoPlayer, MenuAction eAction, int iClient, int iItem)
+{
+	if (eAction == MenuAction_Select)
+	{
+		if (iItem == 1)
+		{
+			CancelClientMenu(iClient, true);
+		}
+		g_bDisplay[iClient] = true;
+	} 
+	if (eAction == MenuAction_Cancel)
+	{
+		if (iItem == MenuCancel_Exit)
+		{
+			g_bDisplay[iClient] = true;
+		}
+		g_bDisplay[iClient] = true;
+	}
+}
+
+
+//----------------------------------------------------------------------------------------------------
 // Purpose: Calculate cooldown time
 //----------------------------------------------------------------------------------------------------
-public Action:Timer_Cooldowns(Handle:timer)
+public Action Timer_Cooldowns(Handle hTimer)
 {
 	if (g_bConfigLoaded && !g_bRoundTransition)
 	{
-		for (new index = 0; index < entArraySize; index++)
+		for (int index = 0; index < entArraySize; index++)
 		{
 			if (entArray[index][ent_cooldowntime] >= 0)
 			{
@@ -1537,26 +1753,26 @@ public Action:Timer_Cooldowns(Handle:timer)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Toggle HUD
 //----------------------------------------------------------------------------------------------------
-public Action:Command_ToggleHUD(client, args)
+public Action Command_ToggleHUD(int iClient, int iArgs)
 {
-	if (AreClientCookiesCached(client))
+	if (AreClientCookiesCached(iClient))
 	{
-		if (g_bDisplay[client])
+		if (g_bDisplay[iClient])
 		{
-			CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "display disabled");
-			SetClientCookie(client, g_hCookie_Display, "0");
-			g_bDisplay[client] = false;
+			CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "display disabled");
+			SetClientCookie(iClient, g_hCookie_Display, "0");
+			g_bDisplay[iClient] = false;
 		}
 		else
 		{
-			CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "display enabled");
-			SetClientCookie(client, g_hCookie_Display, "1");
-			g_bDisplay[client] = true;
+			CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "display enabled");
+			SetClientCookie(iClient, g_hCookie_Display, "1");
+			g_bDisplay[iClient] = true;
 		}
 	}
 	else
 	{
-		CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "cookies loading");
+		CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "cookies loading");
 	}
 
 	return Plugin_Handled;
@@ -1565,145 +1781,145 @@ public Action:Command_ToggleHUD(client, args)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Check status
 //----------------------------------------------------------------------------------------------------
-public Action:Command_Status(client, args)
+public Action Command_Status(int iClient, int iArgs)
 {
-	if (args > 0 && CheckCommandAccess(client, "", ADMFLAG_BAN, true))
+	if (iArgs > 0 && CheckCommandAccess(iClient, "", ADMFLAG_BAN, true))
 	{
-		decl String:Arguments[64];
-		decl String:CStatus[64];
-		new target = -1;
-		GetCmdArg(1, Arguments, sizeof(Arguments));
-		target = FindTarget(client, Arguments);
+		char sArguments[64];
+		char CStatus[64];
+		int iTarget = -1;
+		GetCmdArg(1, sArguments, sizeof(sArguments));
+		iTarget = FindTarget(iClient, sArguments);
 
-		if (target == -1)
+		if (iTarget == -1)
 		{
 			return Plugin_Handled;
 		}
 
-		if (AreClientCookiesCached(target))
+		if (AreClientCookiesCached(iTarget))
 		{
-			GetClientCookie(target, g_hCookie_RestrictedLength, CStatus, sizeof(CStatus));
+			GetClientCookie(iTarget, g_hCookie_RestrictedLength, CStatus, sizeof(CStatus));
 
-			if (g_bRestricted[target])
+			if (g_bRestricted[iTarget])
 			{
-				CReplyToCommand(client, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is temporarily restricted.", color_tag, color_warning, color_name, target, color_warning);
+				CReplyToCommand(iClient, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is temporarily restricted.", color_tag, color_warning, color_name, iTarget, color_warning);
 
 				return Plugin_Handled;
 			}
 
 			if (StringToInt(CStatus) == 0)
 			{
-				CReplyToCommand(client, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is not restricted.", color_tag, color_warning, color_name, target, color_warning);
+				CReplyToCommand(iClient, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is not restricted.", color_tag, color_warning, color_name, iTarget, color_warning);
 
 				return Plugin_Handled;
 			}
 			else if (StringToInt(CStatus) == 1)
 			{
-				CReplyToCommand(client, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is permanently restricted.", color_tag, color_warning, color_name, target, color_warning);
+				CReplyToCommand(iClient, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is permanently restricted.", color_tag, color_warning, color_name, iTarget, color_warning);
 
 				return Plugin_Handled;
 			}
 			else if (StringToInt(CStatus) <= GetTime())
 			{
-				CReplyToCommand(client, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is not restricted.", color_tag, color_warning, color_name, target, color_warning);
-				g_iRestrictedLength[target] = 0;
-				SetClientCookie(target, g_hCookie_RestrictedLength, "0");
+				CReplyToCommand(iClient, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is not restricted.", color_tag, color_warning, color_name, iTarget, color_warning);
+				g_iRestrictedLength[iTarget] = 0;
+				SetClientCookie(iTarget, g_hCookie_RestrictedLength, "0");
 
 				return Plugin_Handled;
 			}
 
-			decl String:RemainingTime[128];
-			decl String:FRemainingTime[128];
-			GetClientCookie(target, g_hCookie_RestrictedLength, RemainingTime, sizeof(RemainingTime));
-			new tstamp = (StringToInt(RemainingTime) - GetTime());
+			char sRemainingTime[128];
+			char sFRemainingTime[128];
+			GetClientCookie(iTarget, g_hCookie_RestrictedLength, sRemainingTime, sizeof(sRemainingTime));
+			int iTstamp = (StringToInt(sRemainingTime) - GetTime());
 
-			new days = (tstamp / 86400);
-			new hours = ((tstamp / 3600) % 24);
-			new minutes = ((tstamp / 60) % 60);
-			new seconds = (tstamp % 60);
+			int iDays = (iTstamp / 86400);
+			int iHours = ((iTstamp / 3600) % 24);
+			int iMinutes = ((iTstamp / 60) % 60);
+			int iSeconds = (iTstamp % 60);
 
-			if (tstamp > 86400)
-				Format(FRemainingTime, sizeof(FRemainingTime), "%d %s, %d %s, %d %s, %d %s", days, SingularOrMultiple(days)?"Days":"Day", hours, SingularOrMultiple(hours)?"Hours":"Hour", minutes, SingularOrMultiple(minutes)?"Minutes":"Minute", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
-			else if (tstamp > 3600)
-				Format(FRemainingTime, sizeof(FRemainingTime), "%d %s, %d %s, %d %s", hours, SingularOrMultiple(hours)?"Hours":"Hour", minutes, SingularOrMultiple(minutes)?"Minutes":"Minute", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
-			else if (tstamp > 60)
-				Format(FRemainingTime, sizeof(FRemainingTime), "%d %s, %d %s", minutes, SingularOrMultiple(minutes)?"Minutes":"Minute", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
+			if (iTstamp > 86400)
+				Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s, %d %s, %d %s, %d %s", iDays, SingularOrMultiple(iDays)?"iDays":"Day", iHours, SingularOrMultiple(iHours)?"iHours":"Hour", iMinutes, SingularOrMultiple(iMinutes)?"iMinutes":"Minute", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
+			else if (iTstamp > 3600)
+				Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s, %d %s, %d %s", iHours, SingularOrMultiple(iHours)?"iHours":"Hour", iMinutes, SingularOrMultiple(iMinutes)?"iMinutes":"Minute", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
+			else if (iTstamp > 60)
+				Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s, %d %s", iMinutes, SingularOrMultiple(iMinutes)?"iMinutes":"Minute", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
 			else
-				Format(FRemainingTime, sizeof(FRemainingTime), "%d %s", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
+				Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
 
-			CReplyToCommand(client, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is restricted for another: \x04%s", color_tag, color_warning, color_name, target, color_warning, FRemainingTime);
+			CReplyToCommand(iClient, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s is restricted for another: \x04%s", color_tag, color_warning, color_name, iTarget, color_warning, sFRemainingTime);
 
 			return Plugin_Handled;
 		}
 		else
 		{
-			CReplyToCommand(client, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s's cookies haven't loaded yet.", color_tag, color_warning, color_name, target, color_warning);
+			CReplyToCommand(iClient, "\x07%s[entWatch]\x07%s \x07%s%N\x07%s's cookies haven't loaded yet.", color_tag, color_warning, color_name, iTarget, color_warning);
 			return Plugin_Handled;
 		}
 	}
 
-	if (g_bRestricted[client])
+	if (g_bRestricted[iClient])
 	{
-		CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status restricted");
+		CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status restricted");
 
 		return Plugin_Handled;
 	}
 
-	if (AreClientCookiesCached(client))
+	if (AreClientCookiesCached(iClient))
 	{
-		if (g_iRestrictedLength[client] >= 1)
+		if (g_iRestrictedLength[iClient] >= 1)
 		{
-			if (g_iRestrictedLength[client] != 1 && g_iRestrictedLength[client] != 0 && g_iRestrictedLength[client] <= GetTime())
+			if (g_iRestrictedLength[iClient] != 1 && g_iRestrictedLength[iClient] != 0 && g_iRestrictedLength[iClient] <= GetTime())
 			{
-				g_iRestrictedLength[client] = 0;
-				SetClientCookie(client, g_hCookie_RestrictedLength, "0");
+				g_iRestrictedLength[iClient] = 0;
+				SetClientCookie(iClient, g_hCookie_RestrictedLength, "0");
 
-				CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status unrestricted");
+				CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status unrestricted");
 				return Plugin_Handled;
 			}
 
-			if (g_iRestrictedLength[client] == 1)
+			if (g_iRestrictedLength[iClient] == 1)
 			{
-				CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t \x04(permanent)", color_tag, color_warning, "status restricted");
+				CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t \x04(permanent)", color_tag, color_warning, "status restricted");
 
 				return Plugin_Handled;
 			}
-			else if (g_iRestrictedLength[client] > 1)
+			else if (g_iRestrictedLength[iClient] > 1)
 			{
-				decl String:RemainingTime[128];
-				decl String:FRemainingTime[128];
-				GetClientCookie(client, g_hCookie_RestrictedLength, RemainingTime, sizeof(RemainingTime));
-				new tstamp = (StringToInt(RemainingTime) - GetTime());
+				char sRemainingTime[128];
+				char sFRemainingTime[128];
+				GetClientCookie(iClient, g_hCookie_RestrictedLength, sRemainingTime, sizeof(sRemainingTime));
+				int iTstamp = (StringToInt(sRemainingTime) - GetTime());
 
-				new days = (tstamp / 86400);
-				new hours = ((tstamp / 3600) % 24);
-				new minutes = ((tstamp / 60) % 60);
-				new seconds = (tstamp % 60);
+				int iDays = (iTstamp / 86400);
+				int iHours = ((iTstamp / 3600) % 24);
+				int iMinutes = ((iTstamp / 60) % 60);
+				int iSeconds = (iTstamp % 60);
 
-				if (tstamp > 86400)
-					Format(FRemainingTime, sizeof(FRemainingTime), "%d %s, %d %s, %d %s, %d %s", days, SingularOrMultiple(days)?"Days":"Day", hours, SingularOrMultiple(hours)?"Hours":"Hour", minutes, SingularOrMultiple(minutes)?"Minutes":"Minute", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
-				else if (tstamp > 3600)
-					Format(FRemainingTime, sizeof(FRemainingTime), "%d %s, %d %s, %d %s", hours, SingularOrMultiple(hours)?"Hours":"Hour", minutes, SingularOrMultiple(minutes)?"Minutes":"Minute", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
-				else if (tstamp > 60)
-					Format(FRemainingTime, sizeof(FRemainingTime), "%d %s, %d %s", minutes, SingularOrMultiple(minutes)?"Minutes":"Minute", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
+				if (iTstamp > 86400)
+					Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s, %d %s, %d %s, %d %s", iDays, SingularOrMultiple(iDays)?"iDays":"Day", iHours, SingularOrMultiple(iHours)?"iHours":"Hour", iMinutes, SingularOrMultiple(iMinutes)?"iMinutes":"Minute", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
+				else if (iTstamp > 3600)
+					Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s, %d %s, %d %s", iHours, SingularOrMultiple(iHours)?"iHours":"Hour", iMinutes, SingularOrMultiple(iMinutes)?"iMinutes":"Minute", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
+				else if (iTstamp > 60)
+					Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s, %d %s", iMinutes, SingularOrMultiple(iMinutes)?"iMinutes":"Minute", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
 				else
-					Format(FRemainingTime, sizeof(FRemainingTime), "%d %s", seconds, SingularOrMultiple(seconds)?"Seconds":"Second");
+					Format(sFRemainingTime, sizeof(sFRemainingTime), "%d %s", iSeconds, SingularOrMultiple(iSeconds)?"iSeconds":"Second");
 
-				CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t \x04(%s)", color_tag, color_warning, "status restricted", FRemainingTime);
+				CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t \x04(%s)", color_tag, color_warning, "status restricted", sFRemainingTime);
 
 				return Plugin_Handled;
 			}
 
-			CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status restricted");
+			CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status restricted");
 		}
 		else
 		{
-			CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status unrestricted");
+			CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "status unrestricted");
 		}
 	}
 	else
 	{
-		CReplyToCommand(client, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "cookies loading");
+		CReplyToCommand(iClient, "\x07%s[entWatch] \x07%s%t", color_tag, color_warning, "cookies loading");
 	}
 
 	return Plugin_Handled;
@@ -1712,46 +1928,46 @@ public Action:Command_Status(client, args)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Ban a client
 //----------------------------------------------------------------------------------------------------
-public Action:Command_Restrict(client, args)
+public Action Command_Restrict(int iClient, int iArgs)
 {
 	if (GetCmdArgs() < 1)
 	{
-		CReplyToCommand(client, "\x07%s[entWatch] \x07%sUsage: sm_eban <target>", color_tag, color_warning);
+		CReplyToCommand(iClient, "\x07%s[entWatch] \x07%sUsage: sm_eban <target>", color_tag, color_warning);
 		return Plugin_Handled;
 	}
 
-	new String:target_argument[64];
-	GetCmdArg(1, target_argument, sizeof(target_argument));
+	char sTarget_argument[64];
+	GetCmdArg(1, sTarget_argument, sizeof(sTarget_argument));
 
-	new target = -1;
-	if ((target = FindTarget(client, target_argument, true)) == -1)
+	int iTarget = -1;
+	if ((iTarget = FindTarget(iClient, sTarget_argument, true)) == -1)
 	{
 		return Plugin_Handled;
 	}
 
 	if (GetCmdArgs() > 1)
 	{
-		decl String:sLen[64];
-		decl String:Flength[64];
+		char sLen[64];
+		char sFlength[64];
 		GetCmdArg(2, sLen, sizeof(sLen));
 
-		Format(Flength, sizeof(Flength), "%d", GetTime() + (StringToInt(sLen) * 60));
+		Format(sFlength, sizeof(sFlength), "%d", GetTime() + (StringToInt(sLen) * 60));
 
 		if (StringToInt(sLen) == 0)
 		{
-			EBanClient(target, "1", client);
+			EBanClient(iTarget, "1", iClient);
 
 			return Plugin_Handled;
 		}
 		else if (StringToInt(sLen) > 0)
 		{
-			EBanClient(target, Flength, client);
+			EBanClient(iTarget, sFlength, iClient);
 		}
 
 		return Plugin_Handled;
 	}
 
-	EBanClient(target, "0", client);
+	EBanClient(iTarget, "0", iClient);
 
 	return Plugin_Handled;
 }
@@ -1759,19 +1975,19 @@ public Action:Command_Restrict(client, args)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Lists the clients that are currently on the server and banned
 //----------------------------------------------------------------------------------------------------
-public Action:Command_EBanlist(client, args)
+public Action Command_EBanlist(int iClient, int iArgs)
 {
-	decl String:sBuff[4096];
-	new bool:bFirst = true;
+	char sBuff[4096];
+	bool bFirst = true;
 	Format(sBuff, sizeof(sBuff), "No players found.");
 
-	for (new i = 1; i < MaxClients + 1; i++)
+	for (int i = 1; i < MaxClients + 1; i++)
 	{
 		if (IsClientInGame(i) && AreClientCookiesCached(i))
 		{
-			decl String:sBanLen[32];
+			char sBanLen[32];
 			GetClientCookie(i, g_hCookie_RestrictedLength, sBanLen, sizeof(sBanLen));
-			new iBanLen = StringToInt(sBanLen);
+			int iBanLen = StringToInt(sBanLen);
 
 			if ((iBanLen != 0 && iBanLen >= GetTime()) || iBanLen == 1)
 			{
@@ -1785,13 +2001,13 @@ public Action:Command_EBanlist(client, args)
 					Format(sBuff, sizeof(sBuff), "%s, ", sBuff);
 				}
 
-				new iUserID = GetClientUserId(i);
+				int iUserID = GetClientUserId(i);
 				Format(sBuff, sizeof(sBuff), "%s%N (#%i)", sBuff, i, iUserID);
 			}
 		}
 	}
 
-	CReplyToCommand(client, "\x07%s[entWatch]\x07%s Currently e-banned: \x07%s%s", color_tag, color_warning, color_name, sBuff);
+	CReplyToCommand(iClient, "\x07%s[entWatch]\x07%s Currently e-banned: \x07%s%s", color_tag, color_warning, color_name, sBuff);
 	Format(sBuff, sizeof(sBuff), "");
 
 	return Plugin_Handled;
@@ -1800,64 +2016,64 @@ public Action:Command_EBanlist(client, args)
 //----------------------------------------------------------------------------------------------------
 // Purpose: Unban a client
 //----------------------------------------------------------------------------------------------------
-public Action:Command_Unrestrict(client, args)
+public Action Command_Unrestrict(int iClient, int iArgs)
 {
 	if (GetCmdArgs() < 1)
 	{
-		CReplyToCommand(client, "\x07%s[entWatch] \x07%sUsage: sm_eunban <target>", color_tag, color_warning);
+		CReplyToCommand(iClient, "\x07%s[entWatch] \x07%sUsage: sm_eunban <iTarget>", color_tag, color_warning);
 		return Plugin_Handled;
 	}
 
-	new String:target_argument[64];
-	GetCmdArg(1, target_argument, sizeof(target_argument));
+	char sTarget_argument[64];
+	GetCmdArg(1, sTarget_argument, sizeof(sTarget_argument));
 
-	new target = -1;
-	if ((target = FindTarget(client, target_argument, true)) == -1)
+	int iTarget = -1;
+	if ((iTarget = FindTarget(iClient, sTarget_argument, true)) == -1)
 	{
 		return Plugin_Handled;
 	}
 
-	EUnbanClient(target, client);
+	EUnbanClient(iTarget, iClient);
 
 	return Plugin_Handled;
 }
 
 //----------------------------------------------------------------------------------------------------
-// Purpose: Transfer a special weapon from a client to another
+// Purpose: Transfer a special weapon from a iClient to another
 //----------------------------------------------------------------------------------------------------
-public Action:Command_Transfer(client, args)
+public Action Command_Transfer(int iClient, int iArgs)
 {
 	if (GetCmdArgs() < 2)
 	{
-		CReplyToCommand(client, "\x07%s[entWatch] \x07%sUsage: sm_etransfer <owner> <receiver>", color_tag, color_warning);
+		CReplyToCommand(iClient, "\x07%s[entWatch] \x07%sUsage: sm_etransfer <owner> <receiver>", color_tag, color_warning);
 
 		return Plugin_Handled;
 	}
 
-	new bool:bFoundWeapon = false;
-	new iEntityIndex = -1
-	new iWeaponCount = 0;
-	new target = -1;
-	new receiver = -1;
+	bool bFoundWeapon = false;
+	int iEntityIndex = -1
+	int iWeaponCount = 0;
+	int iTarget = -1;
+	int iReceiver = -1;
 
-	new String:target_argument[64];
-	GetCmdArg(1, target_argument, sizeof(target_argument));
+	char sTarget_argument[64];
+	GetCmdArg(1, sTarget_argument, sizeof(sTarget_argument));
 
-	new String:receiver_argument[64];
-	GetCmdArg(2, receiver_argument, sizeof(receiver_argument));
+	char sReceiver_argument[64];
+	GetCmdArg(2, sReceiver_argument, sizeof(sReceiver_argument));
 
-	if ((receiver = FindTarget(client, receiver_argument, false)) == -1)
+	if ((iReceiver = FindTarget(iClient, sReceiver_argument, false)) == -1)
 		return Plugin_Handled;
 
 	if (g_bConfigLoaded && !g_bRoundTransition)
 	{
-		if (target_argument[0] == '$')
+		if (sTarget_argument[0] == '$')
 		{
-			strcopy(target_argument, sizeof(target_argument), target_argument[1]);
+			strcopy(sTarget_argument, sizeof(sTarget_argument), sTarget_argument[1]);
 
-			for (new i = 0; i < entArraySize; i++)
+			for (int i = 0; i < entArraySize; i++)
 			{
-				if (StrEqual(target_argument, entArray[i][ent_name], false) || StrEqual(target_argument, entArray[i][ent_shortname], false))
+				if (StrEqual(sTarget_argument, entArray[i][ent_name], false) || StrEqual(sTarget_argument, entArray[i][ent_shortname], false))
 				{
 
 					iWeaponCount++;
@@ -1868,46 +2084,46 @@ public Action:Command_Transfer(client, args)
 		}
 		else
 		{
-			target = FindTarget(client, target_argument, false)
+			iTarget = FindTarget(iClient, sTarget_argument, false)
 
-			if (target != -1)
+			if (iTarget != -1)
 			{
-				if (GetClientTeam(target) != GetClientTeam(receiver))
+				if (GetClientTeam(iTarget) != GetClientTeam(iReceiver))
 				{
-					CPrintToChat(client, "\x07%s[entWatch] \x07%sThe receivers team differs from the targets team.", color_tag, color_warning);
+					CPrintToChat(iClient, "\x07%s[entWatch] \x07%sThe receivers team differs from the targets team.", color_tag, color_warning);
 					return Plugin_Handled;
 				}
 
-				for (new index = 0; index < entArraySize; index++)
+				for (int index = 0; index < entArraySize; index++)
 				{
 					if (entArray[index][ent_ownerid] != -1)
 					{
-						if (entArray[index][ent_ownerid] == target)
+						if (entArray[index][ent_ownerid] == iTarget)
 						{
 							if (entArray[index][ent_allowtransfer])
 							{
 								if (IsValidEdict(entArray[index][ent_weaponid]))
 								{
-									new String:buffer_classname[64];
-									GetEdictClassname(entArray[index][ent_weaponid], buffer_classname, sizeof(buffer_classname));
+									char sBuffer_classname[64];
+									GetEdictClassname(entArray[index][ent_weaponid], sBuffer_classname, sizeof(sBuffer_classname));
 
-									CS_DropWeapon(target, entArray[index][ent_weaponid], false);
-									GivePlayerItem(target, buffer_classname);
+									CS_DropWeapon(iTarget, entArray[index][ent_weaponid], false);
+									GivePlayerItem(iTarget, sBuffer_classname);
 
 									if (entArray[index][ent_chat])
 									{
 										entArray[index][ent_chat] = false;
-										FixedEquipPlayerWeapon(receiver, entArray[index][ent_weaponid]);
+										FixedEquipPlayerWeapon(iReceiver, entArray[index][ent_weaponid]);
 										entArray[index][ent_chat] = true;
 									}
 									else
 									{
-										FixedEquipPlayerWeapon(receiver, entArray[index][ent_weaponid]);
+										FixedEquipPlayerWeapon(iReceiver, entArray[index][ent_weaponid]);
 									}
 
-									CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, client, color_warning, color_name, target, color_warning, color_name, receiver);
+									CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, iClient, color_warning, color_name, iTarget, color_warning, color_name, iReceiver);
 
-									LogAction(client, target, "\"%L\" transfered all items from \"%L\" to \"%L\"", client, target, receiver);
+									LogAction(iClient, iTarget, "\"%L\" transfered all items from \"%L\" to \"%L\"", iClient, iTarget, iReceiver);
 
 									return Plugin_Handled;
 								}
@@ -1925,15 +2141,15 @@ public Action:Command_Transfer(client, args)
 
 	if (iWeaponCount > 1)
 	{
-		new Handle:hEdictMenu = CreateMenu(EdictMenu_Handler);
-		new String:sMenuTemp[64];
-		new String:sIndexTemp[16];
-		new iHeldCount = 0;
-		SetMenuTitle(hEdictMenu, "[entWatch] Edict targets:");
+		Menu hEdictMenu = CreateMenu(EdictMenu_Handler);
+		char sMenuTemp[64];
+		char sIndexTemp[16];
+		int iHeldCount = 0;
+		hEdictMenu.SetTitle("[entWatch] Edict targets:");
 
-		for (new i = 0; i < entArraySize; i++)
+		for (int i = 0; i < entArraySize; i++)
 		{
-			if (StrEqual(target_argument, entArray[i][ent_name], false) || StrEqual(target_argument, entArray[i][ent_shortname], false))
+			if (StrEqual(sTarget_argument, entArray[i][ent_name], false) || StrEqual(sTarget_argument, entArray[i][ent_shortname], false))
 			{
 				if (entArray[i][ent_allowtransfer])
 				{
@@ -1941,7 +2157,7 @@ public Action:Command_Transfer(client, args)
 					{
 						IntToString(i, sIndexTemp, sizeof(sIndexTemp));
 						Format(sMenuTemp, sizeof(sMenuTemp), "%s | %N (#%i)", entArray[i][ent_name], entArray[i][ent_ownerid], GetClientUserId(entArray[i][ent_ownerid]));
-						AddMenuItem(hEdictMenu, sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
+						hEdictMenu.AddItem(sIndexTemp, sMenuTemp, ITEMDRAW_DEFAULT);
 						iHeldCount++;
 					}
 					/*else //not a good idea
@@ -1964,54 +2180,54 @@ public Action:Command_Transfer(client, args)
 				{
 					if (IsValidEdict(entArray[iEntityIndex][ent_weaponid]))
 					{
-						new iCurOwner = entArray[iEntityIndex][ent_ownerid];
+						int iCurOwner = entArray[iEntityIndex][ent_ownerid];
 
-						if (GetClientTeam(receiver) != GetClientTeam(iCurOwner))
+						if (GetClientTeam(iReceiver) != GetClientTeam(iCurOwner))
 						{
-							CPrintToChat(client, "\x07%s[entWatch] \x07%sThe receivers team differs from the targets team.", color_tag, color_warning);
-							CloseHandle(hEdictMenu);
+							CPrintToChat(iClient, "\x07%s[entWatch] \x07%sThe receivers team differs from the targets team.", color_tag, color_warning);
+							delete(hEdictMenu);
 							return Plugin_Handled;
 						}
 
-						new String:buffer_classname[64];
-						GetEdictClassname(entArray[iEntityIndex][ent_weaponid], buffer_classname, sizeof(buffer_classname))
+						char sBuffer_classname[64];
+						GetEdictClassname(entArray[iEntityIndex][ent_weaponid], sBuffer_classname, sizeof(sBuffer_classname))
 
 						CS_DropWeapon(iCurOwner, entArray[iEntityIndex][ent_weaponid], false);
-						GivePlayerItem(iCurOwner, buffer_classname);
+						GivePlayerItem(iCurOwner, sBuffer_classname);
 
 						if (entArray[iEntityIndex][ent_chat])
 						{
 							entArray[iEntityIndex][ent_chat] = false;
-							FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+							FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 							entArray[iEntityIndex][ent_chat] = true;
 						}
 						else
 						{
-							FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+							FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 						}
 
-						CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, client, color_warning, color_name, iCurOwner, color_warning, color_name, receiver);
+						CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, iClient, color_warning, color_name, iCurOwner, color_warning, color_name, iReceiver);
 
-						LogAction(client, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", client, iCurOwner, receiver);
+						LogAction(iClient, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", iClient, iCurOwner, iReceiver);
 					}
 				}
 				else
 				{
-					CPrintToChat(client, "\x07%s[entWatch] \x07%sTarget is not valid.", color_tag, color_warning);
+					CPrintToChat(iClient, "\x07%s[entWatch] \x07%sTarget is not valid.", color_tag, color_warning);
 				}
 			}
 
-			CloseHandle(hEdictMenu);
+			delete(hEdictMenu);
 		}
 		else if (iHeldCount >= 2)
 		{
-			g_iAdminMenuTarget[client] = receiver;
-			DisplayMenu(hEdictMenu, client, MENU_TIME_FOREVER);
+			g_iAdminMenuTarget[iClient] = iReceiver;
+			hEdictMenu.Display(iClient, MENU_TIME_FOREVER);
 		}
 		else
 		{
-			CPrintToChat(client, "\x07%s[entWatch] \x07%sNo one is currently holding that item.", color_tag, color_warning);
-			CloseHandle(hEdictMenu);
+			CPrintToChat(iClient, "\x07%s[entWatch] \x07%sNo one is currently holding that item.", color_tag, color_warning);
+			delete(hEdictMenu);
 		}
 	}
 	else
@@ -2022,77 +2238,77 @@ public Action:Command_Transfer(client, args)
 			{
 				if (IsValidEdict(entArray[iEntityIndex][ent_weaponid]))
 				{
-					new iCurOwner = entArray[iEntityIndex][ent_ownerid];
+					int iCurOwner = entArray[iEntityIndex][ent_ownerid];
 
-					new String:buffer_classname[64];
-					GetEdictClassname(entArray[iEntityIndex][ent_weaponid], buffer_classname, sizeof(buffer_classname))
+					char sBuffer_classname[64];
+					GetEdictClassname(entArray[iEntityIndex][ent_weaponid], sBuffer_classname, sizeof(sBuffer_classname))
 
 					CS_DropWeapon(iCurOwner, entArray[iEntityIndex][ent_weaponid], false);
-					GivePlayerItem(iCurOwner, buffer_classname);
+					GivePlayerItem(iCurOwner, sBuffer_classname);
 
 					if (entArray[iEntityIndex][ent_chat])
 					{
 						entArray[iEntityIndex][ent_chat] = false;
-						FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+						FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 						entArray[iEntityIndex][ent_chat] = true;
 					}
 					else
 					{
-						FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+						FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 					}
 
 					bFoundWeapon = true;
 
-					CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, client, color_warning, color_name, iCurOwner, color_warning, color_name, receiver);
+					CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, iClient, color_warning, color_name, iCurOwner, color_warning, color_name, iReceiver);
 
-					LogAction(client, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", client, iCurOwner, receiver);
+					LogAction(iClient, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", iClient, iCurOwner, iReceiver);
 				}
 			}
 			else
 			{
-				new entity = Entity_GetEntityFromHammerID(entArray[iEntityIndex][ent_hammerid]);
+				int iEntity = Entity_GetEntityFromHammerID(entArray[iEntityIndex][ent_hammerid]);
 
 				if (entArray[iEntityIndex][ent_chat])
 				{
 					entArray[iEntityIndex][ent_chat] = false;
-					FixedEquipPlayerWeapon(receiver, entity);
+					FixedEquipPlayerWeapon(iReceiver, iEntity);
 					entArray[iEntityIndex][ent_chat] = true;
 				}
 				else
 				{
-					FixedEquipPlayerWeapon(receiver, entity);
+					FixedEquipPlayerWeapon(iReceiver, iEntity);
 				}
 
 				bFoundWeapon = true;
 
-				CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered \x07%s%s \x07%sto \x07%s%N", color_tag, color_name, client, color_warning, entArray[iEntityIndex][ent_color], entArray[iEntityIndex][ent_name], color_warning, color_name, receiver);
+				CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered \x07%s%s \x07%sto \x07%s%N", color_tag, color_name, iClient, color_warning, entArray[iEntityIndex][ent_color], entArray[iEntityIndex][ent_name], color_warning, color_name, iReceiver);
 
-				LogAction(client, -1, "\"%L\" transfered \"%s\" to \"%L\"", client, entArray[iEntityIndex][ent_name], receiver);
+				LogAction(iClient, -1, "\"%L\" transfered \"%s\" to \"%L\"", iClient, entArray[iEntityIndex][ent_name], iReceiver);
 			}
 		}
 	}
 
 	if (!bFoundWeapon)
-		CPrintToChat(client, "\x07%s[entWatch] \x07%sInvalid item name.", color_tag, color_warning);
+		CPrintToChat(iClient, "\x07%s[entWatch] \x07%sInvalid item name.", color_tag, color_warning);
 
 	return Plugin_Handled;
 }
 
-public EdictMenu_Handler(Handle:hEdictMenu, MenuAction:hAction, iParam1, iParam2)
+public int EdictMenu_Handler(Menu hEdictMenu, MenuAction hAction, int iParam1, int iParam2)
 {
 	switch (hAction)
 	{
 		case MenuAction_End:
-			CloseHandle(hEdictMenu);
+			delete(hEdictMenu);
 
 		case MenuAction_Select:
 		{
-			new String:sSelected[32];
+			char sSelected[32];
 			GetMenuItem(hEdictMenu, iParam2, sSelected, sizeof(sSelected));
-			new iEntityIndex = StringToInt(sSelected);
-			new receiver = g_iAdminMenuTarget[iParam1];
+			int iEntityIndex = StringToInt(sSelected);
+			int iReceiver = g_iAdminMenuTarget[iParam1];
 
-			if (receiver == 0)
+			if (iReceiver == 0)
 			{
 				CPrintToChat(iParam1, "\x07%s[entWatch] \x07%sReceiver is not valid anymore.", color_tag, color_warning);
 				return;
@@ -2104,34 +2320,34 @@ public EdictMenu_Handler(Handle:hEdictMenu, MenuAction:hAction, iParam1, iParam2
 				{
 					if (IsValidEdict(entArray[iEntityIndex][ent_weaponid]))
 					{
-						new iCurOwner = entArray[iEntityIndex][ent_ownerid];
+						int iCurOwner = entArray[iEntityIndex][ent_ownerid];
 
-						if (GetClientTeam(receiver) != GetClientTeam(iCurOwner))
+						if (GetClientTeam(iReceiver) != GetClientTeam(iCurOwner))
 						{
 							CPrintToChat(iParam1, "\x07%s[entWatch] \x07%sThe receivers team differs from the targets team.", color_tag, color_warning);
 							return;
 						}
 
-						new String:buffer_classname[64];
-						GetEdictClassname(entArray[iEntityIndex][ent_weaponid], buffer_classname, sizeof(buffer_classname))
+						char sBuffer_classname[64];
+						GetEdictClassname(entArray[iEntityIndex][ent_weaponid], sBuffer_classname, sizeof(sBuffer_classname))
 
 						CS_DropWeapon(iCurOwner, entArray[iEntityIndex][ent_weaponid], false);
-						GivePlayerItem(iCurOwner, buffer_classname);
+						GivePlayerItem(iCurOwner, sBuffer_classname);
 
 						if (entArray[iEntityIndex][ent_chat])
 						{
 							entArray[iEntityIndex][ent_chat] = false;
-							FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+							FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 							entArray[iEntityIndex][ent_chat] = true;
 						}
 						else
 						{
-							FixedEquipPlayerWeapon(receiver, entArray[iEntityIndex][ent_weaponid]);
+							FixedEquipPlayerWeapon(iReceiver, entArray[iEntityIndex][ent_weaponid]);
 						}
 
-						CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, iParam1, color_warning, color_name, iCurOwner, color_warning, color_name, receiver);
+						CPrintToChatAll("\x07%s[entWatch] \x07%s%N \x07%stransfered all items from \x07%s%N \x07%sto \x07%s%N", color_tag, color_name, iParam1, color_warning, color_name, iCurOwner, color_warning, color_name, iReceiver);
 
-						LogAction(iParam1, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", iParam1, iCurOwner, receiver);
+						LogAction(iParam1, iCurOwner, "\"%L\" transfered all items from \"%L\" to \"%L\"", iParam1, iCurOwner, iReceiver);
 					}
 				}
 				else
@@ -2143,27 +2359,27 @@ public EdictMenu_Handler(Handle:hEdictMenu, MenuAction:hAction, iParam1, iParam2
 	}
 }
 
-public Action:Command_DebugArray(client, args)
+public Action Command_DebugArray(int iClient, int iArgs)
 {
 	if (g_bConfigLoaded && !g_bRoundTransition)
 	{
-		for (new i = 0; i < entArraySize; i++)
+		for (int i = 0; i < entArraySize; i++)
 		{
-			CPrintToChat(client, "\x07%s[entWatch] \x07%sInfo at \x07%sindex \x04%i\x07%s: \x07%sWeaponID \x04%i\x07%s | \x07%sOwnerID \x04%i\x07%s | \x07%sHammerID \x04%i\x07%s | \x07%sName\x07%s \"\x04%s\x07%s\" | \x07%sShortName\x07%s \"\x04%s\x07%s\"", color_tag, color_warning, color_pickup, i, color_warning, color_pickup, entArray[i][ent_weaponid], color_warning, color_pickup, entArray[i][ent_ownerid], color_warning, color_pickup, entArray[i][ent_hammerid], color_warning, color_pickup, color_warning, entArray[i][ent_name], color_warning, color_pickup, color_warning, entArray[i][ent_shortname], color_warning);
+			CPrintToChat(iClient, "\x07%s[entWatch] \x07%sInfo at \x07%sindex \x04%i\x07%s: \x07%sWeaponID \x04%i\x07%s | \x07%sOwnerID \x04%i\x07%s | \x07%sHammerID \x04%i\x07%s | \x07%sName\x07%s \"\x04%s\x07%s\" | \x07%sShortName\x07%s \"\x04%s\x07%s\"", color_tag, color_warning, color_pickup, i, color_warning, color_pickup, entArray[i][ent_weaponid], color_warning, color_pickup, entArray[i][ent_ownerid], color_warning, color_pickup, entArray[i][ent_hammerid], color_warning, color_pickup, color_warning, entArray[i][ent_name], color_warning, color_pickup, color_warning, entArray[i][ent_shortname], color_warning);
 		}
 	}
 	else
 	{
-		CPrintToChat(client, "\x07%s[entWatch] \x07%sConfig file has not yet loaded or the round is transitioning.", color_tag, color_warning);
+		CPrintToChat(iClient, "\x07%s[entWatch] \x07%sConfig file has not yet loaded or the round is transitioning.", color_tag, color_warning);
 	}
 
 	return Plugin_Handled;
 }
 
 
-CleanData()
+void CleanData()
 {
-	for (new index = 0; index < entArraySize; index++)
+	for (int index = 0; index < entArraySize; index++)
 	{
 		Format(entArray[index][ent_name],         32, "");
 		Format(entArray[index][ent_shortname],    32, "");
@@ -2187,7 +2403,7 @@ CleanData()
 		entArray[index][ent_cooldowntime]   = -1;
 	}
 
-	for (new index = 0; index < triggerSize; index++)
+	for (int index = 0; index < triggerSize; index++)
 	{
 		triggerArray[index] = 0;
 	}
@@ -2199,45 +2415,45 @@ CleanData()
 //----------------------------------------------------------------------------------------------------
 // Purpose: Load color settings
 //----------------------------------------------------------------------------------------------------
-stock LoadColors()
+stock void LoadColors()
 {
-	new Handle:hKeyValues = CreateKeyValues("colors");
-	new String:buffer_config[128];
-	new String:buffer_path[PLATFORM_MAX_PATH];
-	new String:buffer_temp[16];
+	Handle hKeyValues = CreateKeyValues("colors");
+	char sBuffer_config[128];
+	char sBuffer_path[PLATFORM_MAX_PATH];
+	char sBuffer_temp[16];
 
-	GetConVarString(g_hCvar_ConfigColor, buffer_config, sizeof(buffer_config));
-	Format(buffer_path, sizeof(buffer_path), "cfg/sourcemod/entwatch/colors/%s.cfg", buffer_config);
-	FileToKeyValues(hKeyValues, buffer_path);
+	GetConVarString(g_hCvar_ConfigColor, sBuffer_config, sizeof(sBuffer_config));
+	Format(sBuffer_path, sizeof(sBuffer_path), "cfg/sourcemod/entwatch/colors/%s.cfg", sBuffer_config);
+	FileToKeyValues(hKeyValues, sBuffer_path);
 
 	KvRewind(hKeyValues);
 
-	KvGetString(hKeyValues, "color_tag", buffer_temp, sizeof(buffer_temp));
-	Format(color_tag, sizeof(color_tag), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_tag", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_tag, sizeof(color_tag), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_name", buffer_temp, sizeof(buffer_temp));
-	Format(color_name, sizeof(color_name), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_name", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_name, sizeof(color_name), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_steamid", buffer_temp, sizeof(buffer_temp));
-	Format(color_steamid, sizeof(color_steamid), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_steamid", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_steamid, sizeof(color_steamid), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_use", buffer_temp, sizeof(buffer_temp));
-	Format(color_use, sizeof(color_use), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_use", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_use, sizeof(color_use), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_pickup", buffer_temp, sizeof(buffer_temp));
-	Format(color_pickup, sizeof(color_pickup), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_pickup", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_pickup, sizeof(color_pickup), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_drop", buffer_temp, sizeof(buffer_temp));
-	Format(color_drop, sizeof(color_drop), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_drop", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_drop, sizeof(color_drop), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_disconnect", buffer_temp, sizeof(buffer_temp));
-	Format(color_disconnect, sizeof(color_disconnect), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_disconnect", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_disconnect, sizeof(color_disconnect), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_death", buffer_temp, sizeof(buffer_temp));
-	Format(color_death, sizeof(color_death), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_death", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_death, sizeof(color_death), "%s", sBuffer_temp);
 
-	KvGetString(hKeyValues, "color_warning", buffer_temp, sizeof(buffer_temp));
-	Format(color_warning, sizeof(color_warning), "%s", buffer_temp);
+	KvGetString(hKeyValues, "color_warning", sBuffer_temp, sizeof(sBuffer_temp));
+	Format(color_warning, sizeof(color_warning), "%s", sBuffer_temp);
 
 	CloseHandle(hKeyValues);
 }
@@ -2245,27 +2461,27 @@ stock LoadColors()
 //----------------------------------------------------------------------------------------------------
 // Purpose: Load configurations
 //----------------------------------------------------------------------------------------------------
-stock LoadConfig()
+stock void LoadConfig()
 {
-	new Handle:hKeyValues = CreateKeyValues("entities");
-	new String:buffer_map[128];
-	new String:buffer_path[PLATFORM_MAX_PATH];
-	new String:buffer_path_override[PLATFORM_MAX_PATH];
-	new String:buffer_temp[32];
-	new buffer_amount;
+	Handle hKeyValues = CreateKeyValues("entities");
+	char sBuffer_map[128];
+	char sBuffer_path[PLATFORM_MAX_PATH];
+	char sBuffer_path_override[PLATFORM_MAX_PATH];
+	char sBuffer_temp[32];
+	int sBuffer_amount;
 
-	GetCurrentMap(buffer_map, sizeof(buffer_map));
-	Format(buffer_path, sizeof(buffer_path), "cfg/sourcemod/entwatch/maps/%s.cfg", buffer_map);
-	Format(buffer_path_override, sizeof(buffer_path_override), "cfg/sourcemod/entwatch/maps/%s_override.cfg", buffer_map);
-	if (FileExists(buffer_path_override))
+	GetCurrentMap(sBuffer_map, sizeof(sBuffer_map));
+	Format(sBuffer_path, sizeof(sBuffer_path), "cfg/sourcemod/entwatch/maps/%s.cfg", sBuffer_map);
+	Format(sBuffer_path_override, sizeof(sBuffer_path_override), "cfg/sourcemod/entwatch/maps/%s_override.cfg", sBuffer_map);
+	if (FileExists(sBuffer_path_override))
 	{
-		FileToKeyValues(hKeyValues, buffer_path_override);
-		LogMessage("Loading %s", buffer_path_override);
+		FileToKeyValues(hKeyValues, sBuffer_path_override);
+		LogMessage("Loading %s", sBuffer_path_override);
 	}
 	else
 	{
-		FileToKeyValues(hKeyValues, buffer_path);
-		LogMessage("Loading %s", buffer_path);
+		FileToKeyValues(hKeyValues, sBuffer_path);
+		LogMessage("Loading %s", sBuffer_path);
 	}
 
 	KvRewind(hKeyValues);
@@ -2277,59 +2493,59 @@ stock LoadConfig()
 
 		do
 		{
-			KvGetString(hKeyValues, "maxamount", buffer_temp, sizeof(buffer_temp));
-			buffer_amount = StringToInt(buffer_temp);
+			KvGetString(hKeyValues, "maxamount", sBuffer_temp, sizeof(sBuffer_temp));
+			sBuffer_amount = StringToInt(sBuffer_temp);
 
-			for (new i = 0; i < buffer_amount; i++)
+			for (int i = 0; i < sBuffer_amount; i++)
 			{
-				KvGetString(hKeyValues, "name", buffer_temp, sizeof(buffer_temp));
-				Format(entArray[entArraySize][ent_name], 32, "%s", buffer_temp);
+				KvGetString(hKeyValues, "name", sBuffer_temp, sizeof(sBuffer_temp));
+				Format(entArray[entArraySize][ent_name], 32, "%s", sBuffer_temp);
 
-				KvGetString(hKeyValues, "shortname", buffer_temp, sizeof(buffer_temp));
-				Format(entArray[entArraySize][ent_shortname], 32, "%s", buffer_temp);
+				KvGetString(hKeyValues, "shortname", sBuffer_temp, sizeof(sBuffer_temp));
+				Format(entArray[entArraySize][ent_shortname], 32, "%s", sBuffer_temp);
 
-				KvGetString(hKeyValues, "color", buffer_temp, sizeof(buffer_temp));
-				Format(entArray[entArraySize][ent_color], 32, "%s", buffer_temp);
+				KvGetString(hKeyValues, "color", sBuffer_temp, sizeof(sBuffer_temp));
+				Format(entArray[entArraySize][ent_color], 32, "%s", sBuffer_temp);
 
-				KvGetString(hKeyValues, "buttonclass", buffer_temp, sizeof(buffer_temp));
-				Format(entArray[entArraySize][ent_buttonclass], 32, "%s", buffer_temp);
+				KvGetString(hKeyValues, "buttonclass", sBuffer_temp, sizeof(sBuffer_temp));
+				Format(entArray[entArraySize][ent_buttonclass], 32, "%s", sBuffer_temp);
 
-				KvGetString(hKeyValues, "filtername", buffer_temp, sizeof(buffer_temp));
-				Format(entArray[entArraySize][ent_filtername], 32, "%s", buffer_temp);
+				KvGetString(hKeyValues, "filtername", sBuffer_temp, sizeof(sBuffer_temp));
+				Format(entArray[entArraySize][ent_filtername], 32, "%s", sBuffer_temp);
 
-				KvGetString(hKeyValues, "hasfiltername", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_hasfiltername] = StrEqual(buffer_temp, "true", false);
+				KvGetString(hKeyValues, "hasfiltername", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_hasfiltername] = StrEqual(sBuffer_temp, "true", false);
 
-				KvGetString(hKeyValues, "blockpickup", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_blockpickup] = StrEqual(buffer_temp, "true", false);
+				KvGetString(hKeyValues, "blockpickup", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_blockpickup] = StrEqual(sBuffer_temp, "true", false);
 
-				KvGetString(hKeyValues, "allowtransfer", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_allowtransfer] = StrEqual(buffer_temp, "true", false);
+				KvGetString(hKeyValues, "allowtransfer", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_allowtransfer] = StrEqual(sBuffer_temp, "true", false);
 
-				KvGetString(hKeyValues, "forcedrop", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_forcedrop] = StrEqual(buffer_temp, "true", false);
+				KvGetString(hKeyValues, "forcedrop", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_forcedrop] = StrEqual(sBuffer_temp, "true", false);
 
-				KvGetString(hKeyValues, "chat", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_chat] = StrEqual(buffer_temp, "true", false);
+				KvGetString(hKeyValues, "chat", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_chat] = StrEqual(sBuffer_temp, "true", false);
 
-				KvGetString(hKeyValues, "hud", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_hud] = StrEqual(buffer_temp, "true", false);
+				KvGetString(hKeyValues, "hud", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_hud] = StrEqual(sBuffer_temp, "true", false);
 
-				KvGetString(hKeyValues, "hammerid", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_hammerid] = StringToInt(buffer_temp);
+				KvGetString(hKeyValues, "hammerid", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_hammerid] = StringToInt(sBuffer_temp);
 
-				KvGetString(hKeyValues, "mode", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_mode] = StringToInt(buffer_temp);
+				KvGetString(hKeyValues, "mode", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_mode] = StringToInt(sBuffer_temp);
 
-				KvGetString(hKeyValues, "maxuses", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_maxuses] = StringToInt(buffer_temp);
+				KvGetString(hKeyValues, "maxuses", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_maxuses] = StringToInt(sBuffer_temp);
 
-				KvGetString(hKeyValues, "cooldown", buffer_temp, sizeof(buffer_temp));
-				entArray[entArraySize][ent_cooldown] = StringToInt(buffer_temp);
+				KvGetString(hKeyValues, "cooldown", sBuffer_temp, sizeof(sBuffer_temp));
+				entArray[entArraySize][ent_cooldown] = StringToInt(sBuffer_temp);
 
-				KvGetString(hKeyValues, "trigger", buffer_temp, sizeof(buffer_temp));
+				KvGetString(hKeyValues, "trigger", sBuffer_temp, sizeof(sBuffer_temp));
 
-				new tindex = StringToInt(buffer_temp);
+				int tindex = StringToInt(sBuffer_temp);
 				if(tindex)
 				{
 					triggerArray[triggerSize] = tindex;
@@ -2345,13 +2561,13 @@ stock LoadConfig()
 	{
 		g_bConfigLoaded = false;
 
-		LogMessage("Could not load %s", buffer_path);
+		LogMessage("Could not load %s", sBuffer_path);
 	}
 
 	CloseHandle(hKeyValues);
 }
 
-public Action:Command_ReloadConfig(client,args)
+public Action Command_ReloadConfig(int iClient, int iArgs)
 {
 	CleanData();
 	LoadColors();
@@ -2360,78 +2576,78 @@ public Action:Command_ReloadConfig(client,args)
 	return Plugin_Handled;
 }
 
-public OnEntityCreated(entity, const String:classname[])
+public void OnEntityCreated(int iEntity, const char[] sClassname)
 {
-    if (triggerSize > 0 && StrContains(classname, "trigger_", false) != -1 && IsValidEntity(entity))
+    if (triggerSize > 0 && StrContains(sClassname, "trigger_", false) != -1 && IsValidEntity(iEntity))
 	{
-		SDKHook(entity, SDKHook_Spawn, OnEntitySpawned);
+		SDKHook(iEntity, SDKHook_Spawn, OnEntitySpawned);
 	}
 }
 
-public OnEntitySpawned(entity)
+public void OnEntitySpawned(int iEntity)
 {
-	decl String:classname[32];
-	if(Entity_GetClassName(entity, classname, 32))
+	char sClassname[32];
+	if(Entity_GetClassName(iEntity, sClassname, 32))
 	{
-		if (IsValidEntity(entity) && StrContains(classname, "trigger_", false) != -1)
+		if (IsValidEntity(iEntity) && StrContains(sClassname, "trigger_", false) != -1)
 		{
-			new hid = Entity_GetHammerID(entity);
-			for (new index = 0; index < triggerSize; index++)
+			int iHid = Entity_GetHammerID(iEntity);
+			for (int index = 0; index < triggerSize; index++)
 			{
-				if(hid == triggerArray[index])
+				if(iHid == triggerArray[index])
 				{
-					SDKHook(entity, SDKHook_Touch, OnTrigger);
-					SDKHook(entity, SDKHook_EndTouch, OnTrigger);
-					SDKHook(entity, SDKHook_StartTouch, OnTrigger);
+					SDKHook(iEntity, SDKHook_Touch, OnTrigger);
+					SDKHook(iEntity, SDKHook_EndTouch, OnTrigger);
+					SDKHook(iEntity, SDKHook_StartTouch, OnTrigger);
 				}
 			}
 		}
 	}
 }
 
-public Action:Command_Cooldown(client, args)
+public Action Command_Cooldown(int iClient, int iArgs)
 {
-	if (args < 2)
+	if (iArgs < 2)
 	{
-		ReplyToCommand(client, "[SM] Usage: sm_setcooldown <hammerid> <cooldown>");
+		ReplyToCommand(iClient, "[SM] Usage: sm_setcooldown <hammerid> <cooldown>");
 		return Plugin_Handled;
 	}
 
-	new String:hid[32],String:cooldown[10]
+	char sHid[32], sCooldown[10]
 
-	GetCmdArg(1, hid, sizeof(hid));
-	GetCmdArg(2, cooldown, sizeof(cooldown));
+	GetCmdArg(1, sHid, sizeof(sHid));
+	GetCmdArg(2, sCooldown, sizeof(sCooldown));
 
-	new hammerid = StringToInt(hid);
+	int iHammerid = StringToInt(sHid);
 
-	for (new index = 0; index < entArraySize; index++)
+	for (int index = 0; index < entArraySize; index++)
 	{
-		if (entArray[index][ent_hammerid] == hammerid)
+		if (entArray[index][ent_hammerid] == iHammerid)
 		{
-			entArray[index][ent_cooldown] = StringToInt(cooldown);
+			entArray[index][ent_cooldown] = StringToInt(sCooldown);
 		}
 	}
 
 	return Plugin_Handled;
 }
 
-public Action:OnTrigger(entity, other)
+public Action OnTrigger(int iEntity, int iOther)
 {
-    if (MaxClients >= other && 0 < other) {
-        if (IsClientConnected(other)) {
-			if (g_bRestricted[other]) {
+    if (MaxClients >= iOther && 0 < iOther) {
+        if (IsClientConnected(iOther)) {
+			if (g_bRestricted[iOther]) {
 				return Plugin_Handled;
 			}
 
-			if (g_iRestrictedLength[other] != 1 && g_iRestrictedLength[other] != 0 && g_iRestrictedLength[other] <= GetTime())
+			if (g_iRestrictedLength[iOther] != 1 && g_iRestrictedLength[iOther] != 0 && g_iRestrictedLength[iOther] <= GetTime())
 			{
-				g_iRestrictedLength[other] = 0;
-				SetClientCookie(other, g_hCookie_RestrictedLength, "0");
+				g_iRestrictedLength[iOther] = 0;
+				SetClientCookie(iOther, g_hCookie_RestrictedLength, "0");
 
 				return Plugin_Continue;
 			}
 
-			if (g_iRestrictedLength[other] > GetTime() || g_iRestrictedLength[other] == 1)
+			if (g_iRestrictedLength[iOther] > GetTime() || g_iRestrictedLength[iOther] == 1)
 			{
 				return Plugin_Handled;
 			}
@@ -2441,9 +2657,9 @@ public Action:OnTrigger(entity, other)
     return Plugin_Continue;
 }
 
-bool:SingularOrMultiple(int num)
+bool SingularOrMultiple(int iNum)
 {
-	if (num > 1 || num == 0)
+	if (iNum > 1 || iNum == 0)
 	{
 		return true;
 	}
@@ -2451,19 +2667,19 @@ bool:SingularOrMultiple(int num)
 	return false;
 }
 
-public Native_IsClientBanned(Handle:hPlugin, iArgC)
+public int Native_IsClientBanned(Handle hPlugin, int iArgC)
 {
-	new client = GetNativeCell(1);
+	int iClient = GetNativeCell(1);
 
-	if (client < 1 || client > MaxClients || !IsClientInGame(client) || !AreClientCookiesCached(client))
+	if (iClient < 1 || iClient > MaxClients || !IsClientInGame(iClient) || !AreClientCookiesCached(iClient))
 	{
 		ThrowNativeError(SP_ERROR_PARAM, "Invalid client/client is not in game or client cookies are not yet loaded");
 		return false;
 	}
 
-	new String:sBuff[64];
-	GetClientCookie(client, g_hCookie_RestrictedLength, sBuff, sizeof(sBuff));
-	new iBanLen = StringToInt(sBuff);
+	char sBuff[64];
+	GetClientCookie(iClient, g_hCookie_RestrictedLength, sBuff, sizeof(sBuff));
+	int iBanLen = StringToInt(sBuff);
 
 	if ((iBanLen != 0 && iBanLen >= GetTime()) || iBanLen == 1)
 	{
@@ -2474,28 +2690,28 @@ public Native_IsClientBanned(Handle:hPlugin, iArgC)
 	return true;
 }
 
-public Native_BanClient(Handle:hPlugin, iArgC)
+public int Native_BanClient(Handle hPlugin, int iArgC)
 {
-	new client = GetNativeCell(1);
-	new bool:bIsTemporary = GetNativeCell(2);
-	new iBanLen = GetNativeCell(3);
+	int iClient = GetNativeCell(1);
+	bool bIsTemporary = GetNativeCell(2);
+	int iBanLen = GetNativeCell(3);
 
-	if (client < 1 || client > MaxClients || !IsClientInGame(client) || !AreClientCookiesCached(client))
+	if (iClient < 1 || iClient > MaxClients || !IsClientInGame(iClient) || !AreClientCookiesCached(iClient))
 	{
-		ThrowNativeError(SP_ERROR_PARAM, "Invalid client/client is not in game or client cookies are not yet loaded");
+		ThrowNativeError(SP_ERROR_PARAM, "Invalid iClient/iClient is not in game or client cookies are not yet loaded");
 		return false;
 	}
 
 	if (bIsTemporary)
 	{
-		EBanClient(client, "0", 0);
+		EBanClient(iClient, "0", 0);
 
 		return true;
 	}
 
 	if (iBanLen == 0)
 	{
-		EBanClient(client, "1", 0);
+		EBanClient(iClient, "1", 0);
 
 		return true;
 	}
@@ -2510,43 +2726,43 @@ public Native_BanClient(Handle:hPlugin, iArgC)
 		}
 	}
 
-	new String:sBanLen[64];
+	char sBanLen[64];
 	Format(sBanLen, sizeof(sBanLen), "%d", iBanLen);
 
-	EBanClient(client, sBanLen, 0);
+	EBanClient(iClient, sBanLen, 0);
 
 	return true;
 }
 
-public Native_UnbanClient(Handle:hPlugin, iArgC)
+public int Native_UnbanClient(Handle hPlugin, int iArgC)
 {
-	new client = GetNativeCell(1);
+	int iClient = GetNativeCell(1);
 
-	if (client < 1 || client > MaxClients || !IsClientInGame(client) || !AreClientCookiesCached(client))
+	if (iClient < 1 || iClient > MaxClients || !IsClientInGame(iClient) || !AreClientCookiesCached(iClient))
 	{
 		ThrowNativeError(SP_ERROR_PARAM, "Invalid client/client is not in game or client cookies are not yet loaded");
 		return false;
 	}
 
-	EUnbanClient(client, 0);
+	EUnbanClient(iClient, 0);
 
 	return true;
 }
 
-public Native_IsSpecialItem(Handle:hPlugin, iArgC)
+public int Native_IsSpecialItem(Handle hPlugin, int iArgC)
 {
 	if (!g_bConfigLoaded)
 	{
 		return false;
 	}
 
-	new entity = GetNativeCell(1);
+	int entity = GetNativeCell(1);
 	if (entity < MaxClients || !IsValidEdict(entity) || !IsValidEntity(entity))
 	{
 		return false;
 	}
 
-	for (new index = 0; index < entArraySize; index++)
+	for (int index = 0; index < entArraySize; index++)
 	{
 		if (entArray[index][ent_buttonid] == entity)
 		{
@@ -2557,13 +2773,39 @@ public Native_IsSpecialItem(Handle:hPlugin, iArgC)
 	return false;
 }
 
-stock FixedEquipPlayerWeapon(client, weapon)
+public int Native_HasSpecialItem(Handle hPlugin, int iArgC)
 {
-	new iWeaponSlot = SDKCall(g_hGetSlot, weapon);
-	new WeaponInSlot = GetPlayerWeaponSlot(client, iWeaponSlot);
-	if(WeaponInSlot	!= -1)
-		CS_DropWeapon(client, WeaponInSlot, false);
+	if (!g_bConfigLoaded)
+	{
+		return false;
+	}
 
-	if(SDKCall(g_hBumpWeapon, client, weapon))
-		SDKCall(g_hOnPickedUp, weapon, client);
+	int iClient = GetNativeCell(1);
+
+	if (iClient < 1 || iClient > MaxClients || !IsClientInGame(iClient))
+	{
+		ThrowNativeError(SP_ERROR_PARAM, "Invalid iClient/iClient is not in game");
+		return false;
+	}
+
+	for (int index = 0; index < entArraySize; index++)
+	{
+		if (entArray[index][ent_ownerid] == iClient)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+stock void FixedEquipPlayerWeapon(int iClient, int iWeapon)
+{
+	int iWeaponSlot = SDKCall(g_hGetSlot, iWeapon);
+	int WeaponInSlot = GetPlayerWeaponSlot(iClient, iWeaponSlot);
+	if(WeaponInSlot	!= -1)
+		CS_DropWeapon(iClient, WeaponInSlot, false);
+
+	if(SDKCall(g_hBumpWeapon, iClient, iWeapon))
+		SDKCall(g_hOnPickedUp, iWeapon, iClient);
 }

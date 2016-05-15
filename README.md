@@ -1,6 +1,6 @@
 # entWatch
 
-A Counter-Strike: Source entity monitoring plugin written for SourceMod (in SourcePawn).
+A Counter-Strike: Source & Global Offensive entity monitoring plugin written for SourceMod (in SourcePawn).
 
 The focus of entWatch is to monitor special map items found in Zombie Reloaded based maps.
 
@@ -35,12 +35,13 @@ You need to follow a few simple instructions to install entWatch:
 * ze_crashbandicoot_v1fix
 * ze_cyberderp_v1_4
 * ze_death_star_escape_v4_3
+* ze_doom_v1_1
 * ze_fapescape_v1_2
 * ze_ffvii_mako_reactor_v1_4_1
 * ze_ffvii_mako_reactor_v3_1
 * ze_ffvii_mako_reactor_v5_3
+* ze_ffvii_mako_reactor_v6_b08
 * ze_ffvii_mako_russianversion18
-* ze_ffxii_feywood_a2
 * ze_ffxii_feywood_b3_1
 * ze_ffxii_paramina_rift_v1_3
 * ze_ffxii_westersand_v5_2
@@ -63,7 +64,6 @@ You need to follow a few simple instructions to install entWatch:
 * ze_lotr_mount_doom_v3
 * ze_lotr_mount_doom_v4_2
 * ze_minecraft_adventure_v1_2c
-* ze_mountain_escape_v5_12a
 * ze_paper_escaper_v6_6c2
 * ze_paranoid_rezurrection_v11_9
 * ze_pirates_port_royal_v3_6
@@ -74,12 +74,10 @@ You need to follow a few simple instructions to install entWatch:
 * ze_rtcw_ominous_rumors_v1
 * ze_serpentis_escape_a12
 * ze_slender_escape_b4
-* ze_stalker_ultimate_v2_3
 * ze_sunlight_v2_0
 * ze_temple_raider_b4
 * ze_tesv_skyrim_v3
 * ze_tesv_skyrim_v4fix
-* ze_timesplitters_v1_2
 * ze_toaster_v1_2
 * ze_ut2004_convoy_v2_2_1
 * Maps that have entWatch configs packaged into the bsp.
